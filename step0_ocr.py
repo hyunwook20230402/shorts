@@ -167,7 +167,7 @@ def call_hcx005_ocr(image_base64: str, media_type: str) -> str:
 def postprocess_ocr_text(text: str) -> str:
   """OCR 결과 후처리 — 코드펜스 제거, 주석 기호 제거, 연속 빈 줄 정리"""
   import re
-  # GPT가 감싸는 마크다운 코드펜스 제거
+  # 모델이 감싸는 마크다운 코드펜스 제거
   text = re.sub(r'^```[^\n]*\n', '', text)
   text = re.sub(r'\n```$', '', text)
   text = text.strip('`').strip()
@@ -200,10 +200,10 @@ def extract_text_from_image(image_path: str, use_cache: bool = True) -> str:
   if not Path(image_path).exists():
     raise FileNotFoundError(f'이미지 파일을 찾을 수 없습니다: {image_path}')
 
-  # API 키 확인
-  api_key = os.environ.get('OPENAI_API_KEY')
-  if not api_key:
-    raise ValueError('OPENAI_API_KEY 환경변수가 설정되지 않았습니다.')
+  # API 키 확인 (실제 호출은 call_hcx005_ocr 내부에서 검증)
+  ncp_api_key = os.environ.get('NCP_CLOVA_API_KEY')
+  if not ncp_api_key:
+    raise ValueError('NCP_CLOVA_API_KEY 환경변수가 설정되지 않았습니다.')
 
   # 캐시 확인
   cache_path = get_cache_path(image_path)
