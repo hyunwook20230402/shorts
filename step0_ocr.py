@@ -6,12 +6,14 @@ Step 0: OCR — 고전시가 이미지에서 원문 텍스트 추출
 """
 
 import base64
+import json
 import logging
 import os
+import uuid
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
-from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
@@ -27,18 +29,25 @@ logging.basicConfig(
 CACHE_DIR = Path('cache/step0')
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# GPT-4o-mini OCR 프롬프트
-OCR_SYSTEM_PROMPT = """당신은 한국 고전시가(시조, 향가, 가사 등) 전문 해독 AI입니다.
-이미지에서 고전 한국어 텍스트를 정확하게 추출하세요.
+# HCX-005 OCR 프롬프트
+OCR_SYSTEM_PROMPT = """당신은 한국 고전시가(시조, 향가, 가사, 경기체가 등) 전문 해독 AI입니다.
+이미지에 인쇄된 텍스트를 있는 그대로 정확하게 전사(轉寫)하세요.
 
 규칙:
-1. 원문 텍스트만 추출하고, 해석이나 설명을 덧붙이지 마세요.
-2. 한자가 있으면 한자 그대로 포함하세요.
-3. 행 구분은 줄바꿈(\\n)으로 표현하세요.
-4. 이미지에 텍스트가 없거나 읽을 수 없으면 빈 문자열을 반환하세요.
+1. 원문 텍스트만 추출하세요. 해석, 현대어 풀이, 설명을 절대 덧붙이지 마세요.
+2. 고전 한글 철자(예: ㅿ, ㆁ, ㆍ 등 옛글자 포함)를 현대어로 바꾸지 말고 이미지에 보이는 글자 그대로 옮기세요.
+3. 한자는 이미지에 있는 그대로 포함하세요. 임의로 괄호 설명을 추가하지 마세요.
+4. ①②③ 같은 편집자 주석 기호는 제거하세요.
+5. (가), (나), (중략) 같은 구조 표지는 그대로 유지하세요.
+6. **이미지의 행 구조를 정확히 보존하세요.** 각 줄이 나뉘면 개행(\\n)으로 구분하세요. 절대 한 줄로 이어쓰지 마세요.
+7. 작가명·출처·각주가 있으면 본문 뒤에 [출처] 태그와 [각주] 태그로 구분하세요.
+   예) [출처] 구암, 『청색곡』
+       [각주] * 이사가 고운 원을 파면하고...
+8. 마크다운 코드블록(```)으로 감싸지 마세요.
+9. 이미지에 텍스트가 없거나 읽을 수 없으면 빈 문자열을 반환하세요.
 """
 
-OCR_USER_PROMPT = '이미지에 있는 고전시가 원문 텍스트를 추출해주세요.'
+OCR_USER_PROMPT = '이미지에 인쇄된 고전시가 원문 텍스트를 위 규칙에 따라 전사해주세요. 특히 이미지의 행 구조를 정확히 보존하세요.'
 
 
 def encode_image_to_base64(image_path: str) -> str:
@@ -75,9 +84,14 @@ def load_from_cache(cache_path: Path) -> str | None:
 
 
 def save_to_cache(cache_path: Path, text: str) -> None:
-  """OCR 결과를 캐시 파일에 저장"""
-  cache_path.write_text(text, encoding='utf-8')
-  logger.info('OCR 결과 캐시 저장: %s', cache_path)
+  """OCR 결과를 캐시 파일에 저장 (UTF-8)"""
+  try:
+    cache_path.write_text(text, encoding='utf-8')
+    logger.info('OCR 결과 캐시 저장: %s', cache_path)
+  except UnicodeEncodeError:
+    # Windows cp949 폴백 처리 (드물지만)
+    cache_path.write_text(text, encoding='utf-8', errors='replace')
+    logger.warning('유니코드 문자가 포함되어 일부 처리됨: %s', cache_path)
 
 
 @retry(
@@ -85,13 +99,22 @@ def save_to_cache(cache_path: Path, text: str) -> None:
   wait=wait_exponential(multiplier=1, min=2, max=30),
   reraise=True,
 )
-def call_gpt4o_mini_ocr(client: OpenAI, image_base64: str, media_type: str) -> str:
-  """GPT-4o-mini Vision API 호출 (retry 3회 + 지수 백오프)"""
-  logger.info('GPT-4o-mini OCR API 호출 중...')
+def call_hcx005_ocr(image_base64: str, media_type: str) -> str:
+  """HCX-005 OpenAI 호환 API 호출 (retry 3회 + 지수 백오프)"""
+  logger.info('HCX-005 OCR API 호출 중...')
 
-  response = client.chat.completions.create(
-    model='gpt-4o-mini',
-    messages=[
+  api_key = os.environ.get('NCP_CLOVA_API_KEY')
+  if not api_key:
+    raise ValueError('NCP_CLOVA_API_KEY 환경변수가 설정되지 않았습니다.')
+
+  headers = {
+    'Authorization': f'Bearer {api_key}',
+    'Content-Type': 'application/json',
+  }
+
+  payload = {
+    'model': 'HCX-005',
+    'messages': [
       {
         'role': 'system',
         'content': OCR_SYSTEM_PROMPT,
@@ -103,7 +126,6 @@ def call_gpt4o_mini_ocr(client: OpenAI, image_base64: str, media_type: str) -> s
             'type': 'image_url',
             'image_url': {
               'url': f'data:{media_type};base64,{image_base64}',
-              'detail': 'high',
             },
           },
           {
@@ -113,13 +135,49 @@ def call_gpt4o_mini_ocr(client: OpenAI, image_base64: str, media_type: str) -> s
         ],
       },
     ],
-    max_tokens=1000,
-    temperature=0,
-  )
+    'max_tokens': 3000,
+    'temperature': 0,
+  }
 
-  extracted_text = response.choices[0].message.content or ''
-  logger.info('OCR 완료. 추출된 텍스트 길이: %d자', len(extracted_text))
-  return extracted_text
+  try:
+    response = requests.post(
+      'https://clovastudio.stream.ntruss.com/v1/openai/chat/completions',
+      headers=headers,
+      json=payload,
+      timeout=60,
+    )
+    response.raise_for_status()
+
+    result = response.json()
+    extracted_text = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+    logger.info('OCR 완료. 추출된 텍스트 길이: %d자', len(extracted_text))
+    return extracted_text
+
+  except requests.exceptions.RequestException as e:
+    logger.error('HCX-005 API 호출 실패: %s', str(e))
+    try:
+      error_detail = e.response.text
+      logger.error('응답 본문: %s', error_detail)
+    except:
+      pass
+    raise RuntimeError(f'HCX-005 API 호출 중 오류 발생: {str(e)}') from e
+
+
+def postprocess_ocr_text(text: str) -> str:
+  """OCR 결과 후처리 — 코드펜스 제거, 주석 기호 제거, 연속 빈 줄 정리"""
+  import re
+  # GPT가 감싸는 마크다운 코드펜스 제거
+  text = re.sub(r'^```[^\n]*\n', '', text)
+  text = re.sub(r'\n```$', '', text)
+  text = text.strip('`').strip()
+  # ①②③...⑳ 편집자 주석 기호 제거 (앞뒤 공백 포함)
+  text = re.sub(r'\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*', ' ', text)
+  # 연속 공백 정리
+  text = re.sub(r'[ \t]{2,}', ' ', text)
+  # 연속 빈 줄 3개 이상 → 2개로 정리
+  text = re.sub(r'\n{3,}', '\n\n', text)
+  return text.strip()
 
 
 def extract_text_from_image(image_path: str, use_cache: bool = True) -> str:
@@ -161,11 +219,11 @@ def extract_text_from_image(image_path: str, use_cache: bool = True) -> str:
     image_base64 = encode_image_to_base64(image_path)
     media_type = get_image_media_type(image_path)
 
-    # OpenAI 클라이언트 생성
-    client = OpenAI(api_key=api_key)
+    # HCX-005 OCR 호출
+    extracted_raw_text = call_hcx005_ocr(image_base64, media_type)
 
-    # GPT-4o-mini OCR 호출
-    extracted_raw_text = call_gpt4o_mini_ocr(client, image_base64, media_type)
+    # 후처리
+    extracted_raw_text = postprocess_ocr_text(extracted_raw_text)
 
     # 캐시 저장
     if use_cache:
@@ -184,6 +242,11 @@ def extract_text_from_image(image_path: str, use_cache: bool = True) -> str:
 
 if __name__ == '__main__':
   import sys
+
+  # stdout UTF-8 인코딩 명시
+  if sys.stdout.encoding != 'utf-8':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
   if len(sys.argv) < 2:
     print('사용법: python step0_ocr.py <이미지_경로>')
