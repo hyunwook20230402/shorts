@@ -172,7 +172,8 @@ def postprocess_ocr_text(text: str) -> str:
   text = re.sub(r'\n```$', '', text)
   text = text.strip('`').strip()
   # ①②③...⑳ 편집자 주석 기호 제거 (앞뒤 공백 포함)
-  text = re.sub(r'\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*', ' ', text)
+  # 숫자 원문자(①~⑳) + 한글 원문자(㉠~㉩) 제거
+  text = re.sub(r'\s*[\u2460-\u2473\u3260-\u3269]\s*', ' ', text)
   # 연속 공백 정리
   text = re.sub(r'[ \t]{2,}', ' ', text)
   # 연속 빈 줄 3개 이상 → 2개로 정리
