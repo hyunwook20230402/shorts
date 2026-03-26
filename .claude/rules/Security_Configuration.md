@@ -1,0 +1,2 @@
+- **하드코딩 금지:** API 키, 데이터베이스 ID, 포트 번호 등은 코드 내에 하드코딩하지 마세요.
+- **환경 변수:** 모든 민감한 정보와 설정값은 `.env` 파일을 통해 `os.environ` 또는 `pydantic-settings`로 불러와서 사용하세요. (예: `NOTION_API_KEY`, `NOTION_POEM_LOG_DB_ID`)
