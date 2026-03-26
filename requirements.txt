@@ -1,0 +1,12 @@
+openai>=1.30.0
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+tenacity>=8.2.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+streamlit>=1.33.0
+moviepy>=1.0.3
+edge-tts>=6.1.9
+notion-client>=2.2.1
+google-api-python-client>=2.125.0
+google-auth-oauthlib>=1.2.0
