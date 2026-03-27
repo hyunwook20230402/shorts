@@ -83,8 +83,13 @@ def build_workflow(prompt: str) -> dict:
   """FLUX.1 Dev fp8 workflow 조립
 
   UNETLoader 사용 (diffusion_models 또는 checkpoints 폴더 모두 인식)
-  VAE: VAELoader, CLIP: CLIPLoader (type: flux2)
+  VAE: VAELoader, CLIP: DualCLIPLoader (clip_l + t5xxl, type: flux)
   CLIPTextEncodeFlux의 clip_l, t5xxl은 STRING 직접 입력 (노드 연결 아님)
+
+  ## 해상도 보정 (ComfyUI 50% 축소 패턴)
+  현재 ComfyUI 서버에서 생성되는 이미지가 입력 해상도의 50%로 출력됨.
+  원하는 최종 해상도 512×912를 얻기 위해 EmptyFlux2LatentImage에
+  2배인 1024×1824를 입력함으로써 보정.
   """
   return {
     # diffusion 모델 로드 (fp8)
