@@ -136,6 +136,33 @@ def save_to_cache(cache_path: Path, data: dict) -> None:
     logger.warning('캐시 저장 실패: %s', str(e))
 
 
+def get_context_cache_path(text: str) -> Path:
+  """역사적 배경 캐시 경로 생성"""
+  cache_key = get_cache_key(text)
+  return CACHE_DIR / f'{cache_key}_context.txt'
+
+
+def load_context_from_cache(cache_path: Path) -> str | None:
+  """역사적 배경 캐시 로드"""
+  if cache_path.exists():
+    logger.info('캐시에서 역사적 배경 로드: %s', cache_path)
+    try:
+      return cache_path.read_text(encoding='utf-8')
+    except IOError as e:
+      logger.warning('역사적 배경 캐시 읽기 실패: %s', str(e))
+      return None
+  return None
+
+
+def save_context_to_cache(cache_path: Path, context: str) -> None:
+  """역사적 배경 캐시 저장"""
+  try:
+    cache_path.write_text(context, encoding='utf-8')
+    logger.info('역사적 배경 캐시 저장: %s', cache_path)
+  except Exception as e:
+    logger.warning('역사적 배경 캐시 저장 실패: %s', str(e))
+
+
 # ===== JSON 파싱 안전 처리 =====
 
 def strip_code_fence(text: str) -> str:
@@ -194,7 +221,72 @@ def validate_scene(raw_scene: dict, idx: int) -> dict:
   wait=wait_exponential(multiplier=1, min=2, max=30),
   reraise=True,
 )
-def call_hcx005_translate(text: str) -> dict:
+def fetch_historical_context(raw_text: str) -> str:
+  """HCX-005로 역사적 배경 조사 (캐시 지원)"""
+  logger.info('역사적 배경 조사 시작...')
+
+  cache_path = get_context_cache_path(raw_text)
+  cached_context = load_context_from_cache(cache_path)
+  if cached_context is not None:
+    return cached_context
+
+  api_key = os.environ.get('NCP_CLOVA_API_KEY')
+  if not api_key:
+    logger.warning('NCP_CLOVA_API_KEY 미설정 - 역사적 배경 조사 스킵')
+    return ''
+
+  headers = {
+    'Authorization': f'Bearer {api_key}',
+    'Content-Type': 'application/json',
+  }
+
+  system_prompt = """당신은 한국 고전시가 역사 전문가입니다.
+아래 고전시가의 작가, 창작 배경, 시대적 맥락을 200자 이내로 요약하세요.
+나레이션 작성자가 참고할 수 있도록 핵심 비하인드 스토리와 역사적 팩트 위주로 작성하세요.
+불확실한 정보는 '전해지기로는'으로 표시하세요.
+출력은 한국어 텍스트만 (JSON, 마크다운 금지)."""
+
+  payload = {
+    'model': 'HCX-005',
+    'messages': [
+      {'role': 'system', 'content': system_prompt},
+      {'role': 'user', 'content': f'다음 고전시가의 역사적 배경을 요약해주세요:\n\n{raw_text}'},
+    ],
+    'max_tokens': 500,
+    'temperature': 0.3,
+  }
+
+  try:
+    response = requests.post(
+      HCX005_API_URL,
+      headers=headers,
+      json=payload,
+      timeout=60,
+    )
+    response.raise_for_status()
+
+    result = response.json()
+    context = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+    if context.strip():
+      save_context_to_cache(cache_path, context)
+      logger.info('역사적 배경 조사 완료')
+      return context
+
+    logger.warning('역사적 배경 조사 결과가 비어있음')
+    return ''
+
+  except requests.exceptions.RequestException as e:
+    logger.warning('역사적 배경 조사 API 호출 실패: %s', str(e))
+    return ''
+
+
+@retry(
+  stop=stop_after_attempt(3),
+  wait=wait_exponential(multiplier=1, min=2, max=30),
+  reraise=True,
+)
+def call_hcx005_translate(text: str, historical_context: str = '') -> dict:
   """HCX-005로 번역 + 씬 분할 (JSON 응답)"""
   logger.info('HCX-005 번역 + 씬 분할 API 호출 중...')
 
@@ -207,12 +299,17 @@ def call_hcx005_translate(text: str) -> dict:
     'Content-Type': 'application/json',
   }
 
+  # 역사적 배경이 있으면 시스템 프롬프트에 추가
+  system_content = TRANSLATE_SYSTEM_PROMPT
+  if historical_context.strip():
+    system_content += f'\n\n## 역사적 배경 참고 (나레이션 작성 시 활용)\n{historical_context}'
+
   payload = {
     'model': 'HCX-005',
     'messages': [
       {
         'role': 'system',
-        'content': TRANSLATE_SYSTEM_PROMPT,
+        'content': system_content,
       },
       {
         'role': 'user',
@@ -448,16 +545,20 @@ def process_nlp(
   update_notion_task_status(task_id, step=1, message='NLP 처리 시작', status='in_progress')
 
   try:
-    # 4. HCX-005: 번역 + 씬 분할
+    # 4. 역사적 배경 조사 (선택)
+    logger.info('역사적 배경 조사 시작')
+    historical_context = fetch_historical_context(extracted_raw_text)
+
+    # 5. HCX-005: 번역 + 씬 분할 (역사적 배경 주입)
     logger.info('번역 + 씬 분할 시작')
-    translation_result = call_hcx005_translate(extracted_raw_text)
+    translation_result = call_hcx005_translate(extracted_raw_text, historical_context)
     raw_scenes = translation_result.get('scenes', [])
     logger.info('씬 분할 완료: %d씬', len(raw_scenes))
 
-    # 5. 씬 유효성 검사
+    # 6. 씬 유효성 검사
     validated_scenes = [validate_scene(s, i) for i, s in enumerate(raw_scenes)]
 
-    # 6. 각 씬별 이미지 프롬프트 생성
+    # 7. 각 씬별 이미지 프롬프트 생성
     image_prompts: list = []
     for i, scene in enumerate(validated_scenes):
       logger.info('이미지 프롬프트 생성 중: 씬 %d/%d', i + 1, len(validated_scenes))
@@ -468,17 +569,17 @@ def process_nlp(
 
     modern_script_data = validated_scenes
 
-    # 7. 캐시 저장
+    # 8. 캐시 저장
     if use_cache:
       save_to_cache(cache_path, {
         'modern_script_data': modern_script_data,
         'image_prompts': image_prompts,
       })
 
-    # 8. Notion: poem_translation_log 기록
+    # 9. Notion: poem_translation_log 기록
     log_to_notion_poem(extracted_raw_text, modern_script_data, task_id)
 
-    # 9. Notion: 완료 상태 업데이트
+    # 10. Notion: 완료 상태 업데이트
     update_notion_task_status(
       task_id, step=1,
       message=f'NLP 처리 완료 ({len(modern_script_data)}씬)',
