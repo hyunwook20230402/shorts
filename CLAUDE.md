@@ -133,4 +133,124 @@ ELEVENLABS_API_KEY  # 선택
   3. 캐릭터 Dreambooth LoRA로 외모 일관성 확보
   4. IPAdapter로 씬 간 연결성 개선 (img2img)
   5. 컷 수 확장: 7개 → 20~30개
-- **자세한 로드맵:** `.claude/plans/` 참고
+- **자세한 로드맵:** `.claude/plans/step2-quality-upgrade-roadmap.md` 참고
+
+## ComfyUI 서버 환경 상세
+
+### 로컬 서버 (현재 기본값)
+- **주소:** `http://127.0.0.1:8188`
+- **OS:** Windows 11, ComfyUI v0.18.1
+- **GPU:** NVIDIA RTX 4070 Laptop (8GB VRAM, cudaMallocAsync)
+- **커스텀 노드:** KJ 노드 없음 (DiffusionModelLoaderKJ, VAELoaderKJ 사용 불가)
+- **모델 경로:** `flux1-dev-fp8.safetensors` (prefix 없음)
+- **성능:**
+  - 모델 첫 로드: 5~7분 (캐싱 후 2분)
+  - 씬당 생성 시간: 30~45초
+  - 최대 폴링 대기: 1800초
+
+### 외부 서버 (선택사항)
+- **주소:** `http://100.95.34.69:8188`
+- **OS:** Linux, ComfyUI v0.18.1, Python 3.13
+- **GPU:** NVIDIA RTX 4090
+- **커스텀 노드:** KJ 노드 있음 (DiffusionModelLoaderKJ, VAELoaderKJ 사용 가능)
+- **모델 경로:** `FLUX1/flux1-dev-fp8.safetensors` (FLUX1/ prefix 필요)
+
+### 설치된 모델 (로컬 기준)
+| 종류 | 파일명 | 폴더 |
+|------|--------|------|
+| Diffusion | flux1-dev-fp8.safetensors | diffusion_models/ |
+| Diffusion | flux1-dev.safetensors | checkpoints/ |
+| VAE | ae.safetensors | vae/ |
+| CLIP | clip_l.safetensors | clip/ |
+| T5 CLIP | t5xxl_fp8_e4m3fn.safetensors | clip/ |
+
+## 로컬 서버 검증된 Workflow 노드 구조 (2026-03-28)
+
+```
+1. UNETLoader
+   - unet_name: flux1-dev-fp8.safetensors
+   - weight_dtype: fp8_e4m3fn
+
+2. VAELoader
+   - vae_name: ae.safetensors
+
+3. DualCLIPLoader (필수: clip_l + t5xxl 동시 로드)
+   - clip_name1: clip_l.safetensors
+   - clip_name2: t5xxl_fp8_e4m3fn.safetensors
+   - type: flux
+
+4. CLIPTextEncodeFlux
+   - clip: [3, 0]
+   - clip_l: <TEXT_PROMPT>
+   - t5xxl: <TEXT_PROMPT>
+   - guidance: 3.5
+
+5. EmptyFlux2LatentImage (해상도 보정: 원하는 출력의 2배 입력)
+   - width: 1024 (원하는 출력 512의 2배)
+   - height: 1824 (원하는 출력 912의 2배)
+   - batch_size: 1
+
+6. KSampler
+   - seed: <random>
+   - steps: 20
+   - cfg: 3.5
+   - sampler_name: euler
+   - scheduler: karras
+   - denoise: 1.0
+
+7. VAEDecode
+   - samples: [6, 0]
+   - vae: [2, 0]
+
+8. SaveImage
+   - filename_prefix: shorts_
+```
+
+**⚠️ 주의:** 현재 로컬 ComfyUI는 입력 해상도의 50%로 출력함.
+원하는 최종 해상도의 2배를 입력해야 함 (1024×1824 입력 → 512×912 출력).
+
+## Step 2 개발 중 오류 및 해결책 (필독: 반복 금지)
+
+### 오류 1: 서버 주소 혼동
+외부 IP와 로컬을 혼동 → 테스트 결과 엉뚱함
+**→ 항상 .env의 COMFYUI_HOST 값 기준으로만 판단. IP 하드코딩 금지.**
+
+### 오류 2: /object_info 없이 파라미터 추측
+허용되지 않는 값 임의 작성 → 400 Bad Request 반복
+**→ 새 ComfyUI 서버 연결 시 반드시 /object_info 먼저 확인.**
+
+### 오류 3: 모델 타입별 로더 혼동
+fp8 모델인데 CheckpointLoaderSimple 사용 → 모델 목록 비어있음
+**→ diffusion_models 경로면 DiffusionModelLoaderKJ (또는 UNETLoader) 사용.**
+
+### 오류 4: CLIPTextEncodeFlux 파라미터 타입 오해
+CLIP 노드 출력을 clip_l, t5xxl에 연결 → Return type mismatch
+**→ clip_l과 t5xxl에 프롬프트 텍스트를 직접 입력할 것.**
+
+### 오류 5: VAEDecode에 MODEL 타입 연결
+DiffusionModelLoaderKJ 출력을 VAEDecode.vae에 연결 → 타입 불일치
+**→ VAELoader를 별도로 추가해서 VAE 로드 후 연결.**
+
+### 오류 6: Python 타입으로 enum 파라미터 전달
+`sage_attention: False` (bool) → ComfyUI API는 문자열만 허용
+**→ 문자열 값 사용: 'disabled', 'fp8_e4m3fn', 'default', 'main_device', 'flux' 등.**
+
+### 오류 7: 서버 환경별 노드 차이 미확인
+로컬에는 KJ 노드 없음 → 외부 서버 workflow를 로컬에서 실행 시도
+**→ 서버 전환 시 /object_info로 노드 존재 여부 먼저 확인. 로컬/외부 별도 workflow 유지.**
+
+### 오류 8: 가짜 API 200 응답 (30분 낭비)
+서버가 200 응답하지만 작업 처리 안 함 → 1800초 타임아웃 후에야 에러 발생
+**→ 제출 후 2분 안에 GPU 사용량 증가 없으면 즉시 ComfyUI 프로세스 확인. `netstat -ano | grep 8188`으로 PID 확인. comfyui.log 검토.**
+
+### 오류 9: DualCLIPLoader 누락
+CLIPLoader('clip_l.safetensors')만 사용 → CLIPTextEncodeFlux에서 t5xxl 토큰화 불가
+**→ DualCLIPLoader(clip_l + t5xxl, type='flux')로 통합 로드. .env에 COMFYUI_CLIP2 추가.**
+
+### 오류 10: 모델 로드 진행 상황 미공유
+10분 넘게 걸리는데 진행 상황 알 수 없음 → 사용자 혼란
+**→ 제출 직후 예상 시간 안내. 30초마다 경과 시간 출력. GPU 사용량으로 단계 파악.**
+
+### 오류 11: 테스트 파일 남발
+디버깅 중 임시 파일 21개 생성 → 코드베이스 오염
+**→ 디버깅 코드는 기존 파일에 --check 플래그로 통합. 임시 파일 즉시 삭제.**
