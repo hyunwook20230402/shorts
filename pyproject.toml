@@ -1,0 +1,26 @@
+[project]
+name = "shorts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.86.0",
+    "jupyter>=1.1.1",
+    "python-dotenv>=1.2.2",
+    "requests>=2.33.0",
+    "tenacity>=9.1.4",
+    "torch>=2.11.0",
+    "torchaudio>=2.11.0",
+    "torchvision>=0.26.0",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+torchaudio = { index = "pytorch" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu126"  # cu126 = CUDA 12.6
+explicit = true
