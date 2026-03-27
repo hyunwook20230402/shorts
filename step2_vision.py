@@ -3,15 +3,32 @@ Step 2: Vision — ComfyUI API로 웹툰 이미지 생성
 
 입력: image_prompts (list[str]) - Step 1 NLP에서 생성한 씬별 영문 프롬프트
 출력: generated_image_paths (list[str]) - 생성된 PNG 이미지 경로 목록
+
+## 사용법
+  # 서버 연결 확인
+  uv run python step2_vision.py --check
+
+  # 씬 1개만 생성 (테스트)
+  uv run python step2_vision.py cache/step1/12975cb9eb3c0067_nlp.json --scene 1
+
+  # 전체 씬 생성
+  uv run python step2_vision.py cache/step1/12975cb9eb3c0067_nlp.json
+
+## .env 필수 항목
+  COMFYUI_HOST=127.0.0.1
+  COMFYUI_PORT=8188
+  COMFYUI_MODEL=FLUX1/flux1-dev-fp8.safetensors
+  COMFYUI_VAE=ae.safetensors
+  COMFYUI_CLIP=clip_l.safetensors
+  COMFYUI_MAX_WAIT=600
 """
 
-import io
+import argparse
 import json
 import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any
 
 import requests
 from dotenv import load_dotenv
@@ -29,10 +46,14 @@ logging.basicConfig(
 CACHE_DIR = Path('cache/step2')
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# ComfyUI 설정
-COMFYUI_HOST = os.environ.get('COMFYUI_HOST', 'localhost')
+# ComfyUI 설정 (.env에서 로드)
+COMFYUI_HOST = os.environ.get('COMFYUI_HOST', '127.0.0.1')
 COMFYUI_PORT = os.environ.get('COMFYUI_PORT', '8188')
-COMFYUI_MODEL = os.environ.get('COMFYUI_MODEL', 'model.safetensors')
+COMFYUI_MODEL = os.environ.get('COMFYUI_MODEL', 'flux1-dev-fp8.safetensors')
+COMFYUI_VAE = os.environ.get('COMFYUI_VAE', 'ae.safetensors')
+COMFYUI_CLIP = os.environ.get('COMFYUI_CLIP', 'clip_l.safetensors')
+COMFYUI_CLIP2 = os.environ.get('COMFYUI_CLIP2', 't5xxl_fp8_e4m3fn.safetensors')
+COMFYUI_MAX_WAIT = int(os.environ.get('COMFYUI_MAX_WAIT', '600'))
 
 COMFYUI_BASE_URL = f'http://{COMFYUI_HOST}:{COMFYUI_PORT}'
 
@@ -44,326 +65,304 @@ NEGATIVE_PROMPT = (
 )
 
 
-def get_image_cache_path(prompt: str, idx: int) -> Path:
+# ──────────────────────────────────────────────
+# 캐시 유틸
+# ──────────────────────────────────────────────
+
+def get_cache_path(prompt: str, idx: int) -> Path:
   """이미지 캐시 경로 생성"""
-  prompt_hash = str(hash(prompt))[-8:].replace('-', '_')
+  prompt_hash = str(abs(hash(prompt)))[-8:]
   return CACHE_DIR / f'{prompt_hash}_{idx:02d}_image.png'
 
 
-def load_image_from_cache(cache_path: Path) -> str | None:
-  """캐시에서 이미지 경로 로드"""
-  if cache_path.exists():
-    logger.info('캐시에서 이미지 로드: %s', cache_path)
-    return str(cache_path.resolve())
-  return None
+# ──────────────────────────────────────────────
+# Workflow 조립
+# ──────────────────────────────────────────────
 
+def build_workflow(prompt: str) -> dict:
+  """FLUX.1 Dev fp8 workflow 조립
 
-def save_image_to_cache(cache_path: Path, image_data: bytes) -> None:
-  """이미지 데이터를 캐시에 저장"""
-  try:
-    cache_path.write_bytes(image_data)
-    logger.info('이미지 캐시 저장: %s', cache_path)
-  except Exception as e:
-    logger.warning('이미지 캐시 저장 실패: %s', str(e))
-
-
-def build_comfyui_workflow(prompt: str, historical_context: str = '') -> dict:
-  """ComfyUI workflow JSON 조립 (KSampler 기반, historical_context 지원)"""
-  # 역사적 배경이 있으면 프롬프트에 지역명 추가
-  enhanced_prompt = prompt
-  if historical_context.strip():
-    if 'hamgyong' in historical_context.lower() or '함경도' in historical_context:
-      enhanced_prompt = f"{prompt} [Set in Hamgyong Province, Joseon Dynasty]"
-
-  workflow = {
-    '4': {
-      'class_type': 'CheckpointLoaderSimple',
+  UNETLoader 사용 (diffusion_models 또는 checkpoints 폴더 모두 인식)
+  VAE: VAELoader, CLIP: CLIPLoader (type: flux2)
+  CLIPTextEncodeFlux의 clip_l, t5xxl은 STRING 직접 입력 (노드 연결 아님)
+  """
+  return {
+    # diffusion 모델 로드 (fp8)
+    '1': {
+      'class_type': 'UNETLoader',
       'inputs': {
-        'ckpt_name': COMFYUI_MODEL,
+        'unet_name': COMFYUI_MODEL,
+        'weight_dtype': 'fp8_e4m3fn',
       },
     },
-    '5': {
-      'class_type': 'EmptyLatentImage',
+    # VAE 로드
+    '2': {
+      'class_type': 'VAELoader',
       'inputs': {
-        'width': 512,
-        'height': 910,
+        'vae_name': COMFYUI_VAE,
+      },
+    },
+    # CLIP 로드 (clip_l + t5xxl 동시)
+    '3': {
+      'class_type': 'DualCLIPLoader',
+      'inputs': {
+        'clip_name1': COMFYUI_CLIP,
+        'clip_name2': COMFYUI_CLIP2,
+        'type': 'flux',
+      },
+    },
+    # 포지티브 프롬프트 (clip_l, t5xxl에 텍스트 직접 입력)
+    '4': {
+      'class_type': 'CLIPTextEncodeFlux',
+      'inputs': {
+        'clip': ['3', 0],
+        'clip_l': prompt,
+        't5xxl': prompt,
+        'guidance': 3.5,
+      },
+    },
+    # 빈 Latent (9:16 세로 비율, FLUX는 8의 배수 필요)
+    # 주의: 현재 ComfyUI 설정에서 생성 해상도가 약 50% 축소되므로 2배 입력
+    '5': {
+      'class_type': 'EmptyFlux2LatentImage',
+      'inputs': {
+        'width': 1024,
+        'height': 1824,
         'batch_size': 1,
       },
     },
+    # 샘플러
     '6': {
-      'class_type': 'CLIPTextEncode',
-      'inputs': {
-        'text': enhanced_prompt,
-        'clip': ['4', 1],
-      },
-    },
-    '7': {
-      'class_type': 'CLIPTextEncode',
-      'inputs': {
-        'text': NEGATIVE_PROMPT,
-        'clip': ['4', 1],
-      },
-    },
-    '3': {
       'class_type': 'KSampler',
       'inputs': {
         'seed': int(uuid.uuid4().int % (2 ** 32)),
         'steps': 20,
-        'cfg': 7.0,
+        'cfg': 3.5,
         'sampler_name': 'euler',
-        'scheduler': 'normal',
+        'scheduler': 'karras',
         'denoise': 1.0,
-        'model': ['4', 0],
-        'positive': ['6', 0],
-        'negative': ['7', 0],
+        'model': ['1', 0],
+        'positive': ['4', 0],
+        'negative': ['4', 0],
         'latent_image': ['5', 0],
       },
     },
-    '8': {
+    # VAE 디코딩
+    '7': {
       'class_type': 'VAEDecode',
       'inputs': {
-        'samples': ['3', 0],
-        'vae': ['4', 2],
+        'samples': ['6', 0],
+        'vae': ['2', 0],
       },
     },
-    '9': {
+    # 이미지 저장
+    '8': {
       'class_type': 'SaveImage',
       'inputs': {
-        'images': ['8', 0],
+        'images': ['7', 0],
         'filename_prefix': 'shorts_',
       },
     },
   }
-  return workflow
 
 
-@retry(
-  stop=stop_after_attempt(3),
-  wait=wait_exponential(multiplier=1, min=2, max=10),
-  reraise=True,
-)
-def submit_comfyui_prompt(workflow: dict) -> str:
-  """ComfyUI prompt 제출 → prompt_id 반환"""
-  logger.info('ComfyUI 프롬프트 제출 중...')
+# ──────────────────────────────────────────────
+# ComfyUI API 호출
+# ──────────────────────────────────────────────
 
-  try:
-    payload = {
-      'prompt': workflow,
-      'client_id': str(uuid.uuid4()),
-    }
-
-    response = requests.post(
-      f'{COMFYUI_BASE_URL}/prompt',
-      json=payload,
-      timeout=30,
-    )
-    response.raise_for_status()
-
-    result = response.json()
-    prompt_id = result.get('prompt_id')
-
-    if not prompt_id:
-      raise ValueError(f'프롬프트 ID를 받지 못했습니다: {result}')
-
-    logger.info('프롬프트 제출 완료 (ID: %s)', prompt_id)
-    return prompt_id
-
-  except requests.exceptions.RequestException as e:
-    logger.error('ComfyUI 프롬프트 제출 실패: %s', str(e))
-    raise RuntimeError(f'ComfyUI API 호출 실패: {str(e)}') from e
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10), reraise=True)
+def submit_prompt(workflow: dict) -> str:
+  """workflow 제출 → prompt_id 반환"""
+  payload = {'prompt': workflow, 'client_id': str(uuid.uuid4())}
+  response = requests.post(f'{COMFYUI_BASE_URL}/prompt', json=payload, timeout=30)
+  response.raise_for_status()
+  prompt_id = response.json().get('prompt_id')
+  if not prompt_id:
+    raise ValueError(f'prompt_id 없음: {response.json()}')
+  logger.info('제출 완료 (prompt_id: %s)', prompt_id)
+  return prompt_id
 
 
-@retry(
-  stop=stop_after_attempt(3),
-  wait=wait_exponential(multiplier=1, min=2, max=10),
-  reraise=True,
-)
-def poll_comfyui_history(prompt_id: str, max_wait: int = 60) -> dict:
-  """ComfyUI 실행 완료 대기 (폴링, 최대 60초)"""
+def poll_until_done(prompt_id: str) -> dict:
+  """이미지 생성 완료 대기 (1초 폴링, 최대 COMFYUI_MAX_WAIT초)"""
   import time
 
-  logger.info('ComfyUI 이미지 생성 대기 중... (최대 %d초)', max_wait)
-  start_time = time.time()
+  logger.info('이미지 생성 대기 중... (최대 %d초)', COMFYUI_MAX_WAIT)
+  start = time.time()
 
   while True:
-    elapsed = time.time() - start_time
-    if elapsed > max_wait:
-      raise TimeoutError(f'ComfyUI 이미지 생성 시간 초과 ({max_wait}초)')
+    elapsed = time.time() - start
+    if elapsed > COMFYUI_MAX_WAIT:
+      raise TimeoutError(f'이미지 생성 시간 초과 ({COMFYUI_MAX_WAIT}초)')
 
     try:
-      response = requests.get(
-        f'{COMFYUI_BASE_URL}/history/{prompt_id}',
-        timeout=10,
-      )
+      response = requests.get(f'{COMFYUI_BASE_URL}/history/{prompt_id}', timeout=10)
       response.raise_for_status()
-
       history = response.json()
 
-      if prompt_id in history and history[prompt_id]:
+      if prompt_id in history:
         outputs = history[prompt_id].get('outputs', {})
         if outputs:
-          logger.info('ComfyUI 이미지 생성 완료')
+          logger.info('이미지 생성 완료 (%.1f초 소요)', elapsed)
           return outputs
-
     except requests.exceptions.RequestException as e:
-      logger.warning('ComfyUI history 조회 실패: %s', str(e))
+      logger.warning('history 조회 실패: %s', e)
 
-    time.sleep(1)  # 1초 간격 폴링
-
-
-@retry(
-  stop=stop_after_attempt(3),
-  wait=wait_exponential(multiplier=1, min=2, max=10),
-  reraise=True,
-)
-def download_comfyui_image(filename: str) -> bytes:
-  """ComfyUI에서 생성된 이미지 다운로드"""
-  logger.info('ComfyUI 이미지 다운로드: %s', filename)
-
-  try:
-    response = requests.get(
-      f'{COMFYUI_BASE_URL}/view',
-      params={'filename': filename, 'type': 'output'},
-      timeout=30,
-    )
-    response.raise_for_status()
-
-    logger.info('이미지 다운로드 완료 (%d bytes)', len(response.content))
-    return response.content
-
-  except requests.exceptions.RequestException as e:
-    logger.error('이미지 다운로드 실패: %s', str(e))
-    raise RuntimeError(f'이미지 다운로드 실패: {str(e)}') from e
+    time.sleep(1)
 
 
-def generate_image(
-  prompt: str,
-  idx: int,
-  use_cache: bool = True,
-  historical_context: str = '',
-) -> str:
-  """씬 1개 이미지 생성 (캐시 지원, historical_context 주입)"""
-  cache_path = get_image_cache_path(prompt, idx)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10), reraise=True)
+def download_image(filename: str) -> bytes:
+  """ComfyUI output에서 이미지 다운로드"""
+  response = requests.get(
+    f'{COMFYUI_BASE_URL}/view',
+    params={'filename': filename, 'type': 'output'},
+    timeout=30,
+  )
+  response.raise_for_status()
+  logger.info('이미지 다운로드 완료 (%d bytes)', len(response.content))
+  return response.content
 
-  # 캐시 확인
-  if use_cache:
-    cached_path = load_image_from_cache(cache_path)
-    if cached_path is not None:
-      return cached_path
 
-  # 1. Workflow 조립 (역사적 배경 포함)
-  workflow = build_comfyui_workflow(prompt, historical_context)
+# ──────────────────────────────────────────────
+# 메인 생성 함수
+# ──────────────────────────────────────────────
 
-  # 2. 프롬프트 제출
-  prompt_id = submit_comfyui_prompt(workflow)
+def generate_image(prompt: str, idx: int, use_cache: bool = True) -> str:
+  """씬 1개 이미지 생성 → 로컬 캐시 경로 반환"""
+  cache_path = get_cache_path(prompt, idx)
 
-  # 3. 이미지 생성 완료 대기
-  outputs = poll_comfyui_history(prompt_id)
+  if use_cache and cache_path.exists():
+    logger.info('캐시 사용: %s', cache_path)
+    return str(cache_path.resolve())
 
-  # 4. 생성된 이미지 파일명 추출
-  image_files = outputs.get('9', {}).get('images', [])
+  # 1. workflow 조립 및 제출
+  workflow = build_workflow(prompt)
+  prompt_id = submit_prompt(workflow)
+
+  # 2. 완료 대기
+  outputs = poll_until_done(prompt_id)
+
+  # 3. 파일명 추출
+  image_files = outputs.get('8', {}).get('images', [])
   if not image_files:
-    raise RuntimeError(f'ComfyUI가 이미지를 생성하지 못했습니다 (prompt_id: {prompt_id})')
+    raise RuntimeError(f'출력 이미지 없음 (prompt_id: {prompt_id})')
 
-  image_filename = image_files[0].get('filename', '')
-  if not image_filename:
-    raise RuntimeError('이미지 파일명을 추출할 수 없습니다')
+  filename = image_files[0].get('filename', '')
+  if not filename:
+    raise RuntimeError('이미지 파일명 추출 실패')
 
-  # 5. 이미지 다운로드
-  image_data = download_comfyui_image(image_filename)
+  # 4. 다운로드 및 캐시 저장
+  image_data = download_image(filename)
+  cache_path.write_bytes(image_data)
+  logger.info('씬 %d 저장 완료: %s', idx + 1, cache_path)
 
-  # 6. 캐시 저장
-  if use_cache:
-    save_image_to_cache(cache_path, image_data)
-
-  logger.info('이미지 생성 완료: 씬 %d (경로: %s)', idx + 1, cache_path)
   return str(cache_path.resolve())
 
 
 def generate_all_images(
   image_prompts: list[str],
-  task_id: str | None = None,
   use_cache: bool = True,
 ) -> list[str]:
-  """
-  Step 2 Vision 메인 함수
+  """Step 2 메인 함수: 전체 씬 이미지 생성"""
+  logger.info('이미지 생성 시작 (총 %d씬)', len(image_prompts))
+  paths: list[str] = []
 
-  Args:
-    image_prompts: Step 1에서 생성한 씬별 영문 프롬프트 (list[str])
-    task_id: 파이프라인 작업 ID (로깅용, 선택)
-    use_cache: 캐시 사용 여부
+  for idx, prompt in enumerate(image_prompts):
+    logger.info('씬 %d/%d 생성 중...', idx + 1, len(image_prompts))
+    path = generate_image(prompt, idx, use_cache=use_cache)
+    paths.append(path)
 
-  Returns:
-    generated_image_paths: 생성된 이미지 절대 경로 목록
+  logger.info('전체 이미지 생성 완료 (%d개)', len(paths))
+  return paths
 
-  Raises:
-    RuntimeError: ComfyUI 연결 실패 또는 이미지 생성 실패 시
-  """
-  if not task_id:
-    task_id = str(uuid.uuid4())
-    logger.info('task_id 자동 생성: %s', task_id)
 
-  generated_image_paths: list[str] = []
+# ──────────────────────────────────────────────
+# CLI
+# ──────────────────────────────────────────────
+
+def cmd_check() -> None:
+  """서버 연결 및 모델 존재 여부 확인"""
+  print(f'서버 주소: {COMFYUI_BASE_URL}')
 
   try:
-    logger.info('이미지 생성 시작 (총 %d씬)', len(image_prompts))
-
-    for idx, prompt in enumerate(image_prompts):
-      try:
-        logger.info('이미지 생성 중: 씬 %d/%d', idx + 1, len(image_prompts))
-        # historical_context는 현재 버전에서는 전체 작품 기반으로 동일하게 사용
-        # (step1_nlp.py에서 각 씬에 저장된 historical_context 활용 가능)
-        image_path = generate_image(prompt, idx, use_cache=use_cache)
-        generated_image_paths.append(image_path)
-
-      except Exception as e:
-        logger.error('씬 %d 이미지 생성 실패: %s', idx + 1, str(e))
-        # 부분 실패 시에도 진행 계속
-        raise RuntimeError(f'씬 {idx + 1} 이미지 생성 실패: {str(e)}') from e
-
-    logger.info('모든 이미지 생성 완료 (경로 수: %d)', len(generated_image_paths))
-    return generated_image_paths
-
+    response = requests.get(f'{COMFYUI_BASE_URL}/system_stats', timeout=10)
+    response.raise_for_status()
+    info = response.json()
+    print(f'[OK] 서버 연결 성공')
+    print(f'     ComfyUI: {info["system"].get("comfyui_version", "?")}')
+    print(f'     GPU: {info["devices"][0]["name"] if info.get("devices") else "없음"}')
   except Exception as e:
-    logger.error('이미지 생성 처리 실패: %s', str(e))
-    raise RuntimeError(f'Step 2 Vision 처리 중 오류: {str(e)}') from e
+    print(f'[FAIL] 서버 연결 실패: {e}')
+    return
+
+  try:
+    # UNETLoader 기준으로 diffusion_models 폴더 모델 목록 확인
+    response = requests.get(f'{COMFYUI_BASE_URL}/object_info/UNETLoader', timeout=10)
+    data = response.json()
+    models = data.get('UNETLoader', {}).get('input', {}).get('required', {}).get('unet_name', [[]])[0]
+    if COMFYUI_MODEL in models:
+      print(f'[OK] 모델 확인: {COMFYUI_MODEL}')
+    else:
+      print(f'[WARN] 모델 미확인: {COMFYUI_MODEL}')
+      print(f'       diffusion_models 목록: {models}')
+      # checkpoints 폴더도 추가 확인
+      resp2 = requests.get(f'{COMFYUI_BASE_URL}/object_info/CheckpointLoaderSimple', timeout=10)
+      ckpts = resp2.json().get('CheckpointLoaderSimple', {}).get('input', {}).get('required', {}).get('ckpt_name', [[]])[0]
+      if COMFYUI_MODEL in ckpts:
+        print(f'[INFO] checkpoints 폴더에서 발견: {COMFYUI_MODEL}')
+      else:
+        print(f'       checkpoints 목록: {ckpts}')
+  except Exception as e:
+    print(f'[FAIL] 모델 확인 실패: {e}')
 
 
 if __name__ == '__main__':
-  import sys
+  parser = argparse.ArgumentParser(description='Step 2: ComfyUI 웹툰 이미지 생성')
+  parser.add_argument('nlp_cache', nargs='?', help='Step 1 캐시 JSON 파일 경로')
+  parser.add_argument('--check', action='store_true', help='서버 연결 및 모델 확인')
+  parser.add_argument('--scene', type=int, default=0, help='특정 씬만 생성 (1부터 시작, 0=전체)')
+  parser.add_argument('--no-cache', action='store_true', help='캐시 무시하고 재생성')
+  args = parser.parse_args()
 
-  if len(sys.argv) < 2:
-    print('사용법: python step2_vision.py <step1_nlp_캐시_JSON_경로>')
-    sys.exit(1)
+  if args.check:
+    cmd_check()
+    raise SystemExit(0)
 
-  nlp_cache_file = sys.argv[1]
+  if not args.nlp_cache:
+    parser.print_help()
+    raise SystemExit(1)
 
-  try:
-    # Step 1 캐시 로드
-    with open(nlp_cache_file, 'r', encoding='utf-8') as f:
-      nlp_result = json.load(f)
+  nlp_path = Path(args.nlp_cache)
+  if not nlp_path.exists():
+    logger.error('파일 없음: %s', nlp_path)
+    raise SystemExit(1)
 
-    image_prompts = nlp_result.get('image_prompts', [])
-    if not image_prompts:
-      print('❌ image_prompts를 찾을 수 없습니다')
-      sys.exit(1)
+  with open(nlp_path, 'r', encoding='utf-8') as f:
+    nlp_result = json.load(f)
 
-    print(f'\n📸 Step 2 Vision 시작 (총 {len(image_prompts)}씬)')
-    print('=' * 60)
+  image_prompts: list[str] = nlp_result.get('image_prompts', [])
+  if not image_prompts:
+    logger.error('image_prompts 없음')
+    raise SystemExit(1)
 
-    generated_paths = generate_all_images(image_prompts)
+  use_cache = not args.no_cache
 
-    print('\n✅ 이미지 생성 완료!')
-    print('=' * 60)
-    for idx, path in enumerate(generated_paths, 1):
-      print(f'  씬 {idx}: {path}')
-
-  except FileNotFoundError:
-    logger.error('Step 1 캐시 파일을 찾을 수 없습니다: %s', nlp_cache_file)
-    sys.exit(1)
-  except (json.JSONDecodeError, KeyError) as e:
-    logger.error('Step 1 캐시 파일 형식 오류: %s', str(e))
-    sys.exit(1)
-  except RuntimeError as e:
-    logger.error('이미지 생성 실패: %s', str(e))
-    sys.exit(1)
+  if args.scene > 0:
+    # 단일 씬 생성
+    scene_idx = args.scene - 1
+    if scene_idx >= len(image_prompts):
+      logger.error('씬 번호 범위 초과 (최대 %d)', len(image_prompts))
+      raise SystemExit(1)
+    prompt = image_prompts[scene_idx]
+    print(f'\n씬 {args.scene} 이미지 생성 시작')
+    print(f'프롬프트: {prompt[:80]}...\n')
+    path = generate_image(prompt, scene_idx, use_cache=use_cache)
+    print(f'\n[OK] 씬 {args.scene} 완료: {path}')
+  else:
+    # 전체 씬 생성
+    print(f'\n전체 {len(image_prompts)}씬 이미지 생성 시작\n')
+    paths = generate_all_images(image_prompts, use_cache=use_cache)
+    print(f'\n[OK] 전체 완료')
+    for i, p in enumerate(paths, 1):
+      print(f'  씬 {i}: {p}')
