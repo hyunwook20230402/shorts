@@ -67,8 +67,14 @@ def save_image_to_cache(cache_path: Path, image_data: bytes) -> None:
     logger.warning('이미지 캐시 저장 실패: %s', str(e))
 
 
-def build_comfyui_workflow(prompt: str) -> dict:
-  """ComfyUI workflow JSON 조립 (KSampler 기반)"""
+def build_comfyui_workflow(prompt: str, historical_context: str = '') -> dict:
+  """ComfyUI workflow JSON 조립 (KSampler 기반, historical_context 지원)"""
+  # 역사적 배경이 있으면 프롬프트에 지역명 추가
+  enhanced_prompt = prompt
+  if historical_context.strip():
+    if 'hamgyong' in historical_context.lower() or '함경도' in historical_context:
+      enhanced_prompt = f"{prompt} [Set in Hamgyong Province, Joseon Dynasty]"
+
   workflow = {
     '4': {
       'class_type': 'CheckpointLoaderSimple',
@@ -87,7 +93,7 @@ def build_comfyui_workflow(prompt: str) -> dict:
     '6': {
       'class_type': 'CLIPTextEncode',
       'inputs': {
-        'text': prompt,
+        'text': enhanced_prompt,
         'clip': ['4', 1],
       },
     },
@@ -230,8 +236,13 @@ def download_comfyui_image(filename: str) -> bytes:
     raise RuntimeError(f'이미지 다운로드 실패: {str(e)}') from e
 
 
-def generate_image(prompt: str, idx: int, use_cache: bool = True) -> str:
-  """씬 1개 이미지 생성 (캐시 지원)"""
+def generate_image(
+  prompt: str,
+  idx: int,
+  use_cache: bool = True,
+  historical_context: str = '',
+) -> str:
+  """씬 1개 이미지 생성 (캐시 지원, historical_context 주입)"""
   cache_path = get_image_cache_path(prompt, idx)
 
   # 캐시 확인
@@ -240,8 +251,8 @@ def generate_image(prompt: str, idx: int, use_cache: bool = True) -> str:
     if cached_path is not None:
       return cached_path
 
-  # 1. Workflow 조립
-  workflow = build_comfyui_workflow(prompt)
+  # 1. Workflow 조립 (역사적 배경 포함)
+  workflow = build_comfyui_workflow(prompt, historical_context)
 
   # 2. 프롬프트 제출
   prompt_id = submit_comfyui_prompt(workflow)
@@ -300,6 +311,8 @@ def generate_all_images(
     for idx, prompt in enumerate(image_prompts):
       try:
         logger.info('이미지 생성 중: 씬 %d/%d', idx + 1, len(image_prompts))
+        # historical_context는 현재 버전에서는 전체 작품 기반으로 동일하게 사용
+        # (step1_nlp.py에서 각 씬에 저장된 historical_context 활용 가능)
         image_path = generate_image(prompt, idx, use_cache=use_cache)
         generated_image_paths.append(image_path)
 
