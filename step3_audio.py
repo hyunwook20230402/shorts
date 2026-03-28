@@ -1,5 +1,5 @@
 """
-Step 3: Audio — Edge-TTS로 나레이션 오디오 생성
+Step 3: Audio — Edge-TTS로 나레이션 오디오 생성 (감정 파라미터 적용)
 
 입력: modern_script_data (list[dict])
 출력: generated_audio_paths (list[str])
@@ -9,6 +9,7 @@ Step 3: Audio — Edge-TTS로 나레이션 오디오 생성
   uv run python step3_audio.py cache/step1/xxx_nlp.json
   uv run python step3_audio.py cache/step1/xxx_nlp.json --scene 1
   uv run python step3_audio.py cache/step1/xxx_nlp.json --no-cache
+  uv run python step3_audio.py --clean-cache [--force]
 
 ## .env 필수 항목
   TTS_VOICE=ko-KR-SunHiNeural  # 기본값, 선택 가능: ko-KR-InJoonNeural
@@ -16,10 +17,12 @@ Step 3: Audio — Edge-TTS로 나레이션 오디오 생성
 
 import asyncio
 import argparse
+import hashlib
 import json
 import logging
 import os
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +47,26 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_VOICE = 'ko-KR-SunHiNeural'
 TTS_VOICE: str = os.environ.get('TTS_VOICE', DEFAULT_VOICE)
 
+# 시 낭송 감정별 TTS 파라미터 매핑
+# rate: -50% ~ +100% / pitch: -100Hz ~ +50Hz (Hz 단위가 더 안정적)
+EMOTION_VOICE_PARAMS: dict[str, dict[str, str]] = {
+  # Step1 NLP 실제 반환값 (직접 매핑)
+  '기쁨':       {'rate': '+5%',  'pitch': '+8Hz'},
+  '감탄':       {'rate': '-5%',  'pitch': '+5Hz'},
+  '당황스러움':  {'rate': '+5%',  'pitch': '+3Hz'},
+  '민망함':     {'rate': '-10%', 'pitch': '-3Hz'},
+  '걱정':       {'rate': '-15%', 'pitch': '-5Hz'},
+  '피곤함':     {'rate': '-20%', 'pitch': '-8Hz'},
+  '회의감':     {'rate': '-20%', 'pitch': '-5Hz'},
+  # 추가 예상 감정값 (시조 특성 반영)
+  '사색적':     {'rate': '-15%', 'pitch': '-3Hz'},
+  '회상':       {'rate': '-20%', 'pitch': '-5Hz'},
+  '슬픔':       {'rate': '-25%', 'pitch': '-8Hz'},
+  '결의':       {'rate': '-5%',  'pitch': '+3Hz'},
+  # 기본값 (시 낭송 기본 느낌)
+  'default':    {'rate': '-10%', 'pitch': '-2Hz'},
+}
+
 # Windows 환경에서 asyncio 이벤트 루프 정책 설정
 if sys.platform == 'win32':
   asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -52,10 +75,19 @@ if sys.platform == 'win32':
 # ─────────────── 캐시 유틸 ───────────────────────────────────────────
 
 
-def get_cache_path(text: str, idx: int) -> Path:
-  """나레이션 텍스트와 씬 인덱스로 캐시 경로 생성"""
-  text_hash = str(abs(hash(text)))[-8:]
+def get_cache_path(
+  text: str, idx: int, voice: str = '', rate: str = '', pitch: str = ''
+) -> Path:
+  """결정론적 해시로 캐시 경로 생성 (파라미터 포함)"""
+  # PYTHONHASHSEED 의존성 제거: hashlib 사용
+  key = f'{text}|{voice}|{rate}|{pitch}'
+  text_hash = hashlib.md5(key.encode('utf-8')).hexdigest()[:8]
   return CACHE_DIR / f'{text_hash}_{idx:02d}_audio.mp3'
+
+
+def get_voice_params(emotion: str) -> dict[str, str]:
+  """감정 문자열로 TTS 파라미터 조회. 미매핑 시 default 반환"""
+  return EMOTION_VOICE_PARAMS.get(emotion.strip(), EMOTION_VOICE_PARAMS['default'])
 
 
 # ─────────────── edge-tts 핵심 호출 ───────────────────────────────────
@@ -70,11 +102,13 @@ async def generate_audio_async(
   text: str,
   voice: str,
   output_path: Path,
+  rate: str = '-10%',
+  pitch: str = '-2Hz',
 ) -> None:
   """edge-tts API 호출 (최대 3회 retry)"""
-  communicate = edge_tts.Communicate(text=text, voice=voice)
+  communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
   await communicate.save(str(output_path))
-  logger.info('오디오 저장 완료: %s', output_path)
+  logger.info('오디오 저장 완료: %s (rate=%s, pitch=%s)', output_path, rate, pitch)
 
 
 # ─────────────── 단일 씬 처리 ─────────────────────────────────────────
@@ -85,17 +119,25 @@ async def generate_audio(
   idx: int,
   voice: str = TTS_VOICE,
   use_cache: bool = True,
+  emotion: str = '',
 ) -> str:
   """씬 1개 나레이션 오디오 생성 → 로컬 캐시 경로 반환"""
-  cache_path = get_cache_path(text, idx)
+  params = get_voice_params(emotion)
+  rate = params['rate']
+  pitch = params['pitch']
+
+  cache_path = get_cache_path(text, idx, voice=voice, rate=rate, pitch=pitch)
 
   if use_cache and cache_path.exists():
-    logger.info('캐시 사용: %s', cache_path)
+    logger.info('캐시 사용: %s (emotion=%s)', cache_path, emotion or 'default')
     return str(cache_path.resolve())
 
-  logger.info('씬 %d 오디오 생성 중... (voice: %s)', idx + 1, voice)
+  logger.info(
+    '씬 %d 오디오 생성 중... (voice=%s, emotion=%s, rate=%s, pitch=%s)',
+    idx + 1, voice, emotion or 'default', rate, pitch,
+  )
   try:
-    await generate_audio_async(text, voice, cache_path)
+    await generate_audio_async(text, voice, cache_path, rate=rate, pitch=pitch)
 
     # 캐시 무결성 확인
     file_size = cache_path.stat().st_size
@@ -145,12 +187,13 @@ def generate_all_audio(
     paths: list[str] = []
     for idx, scene in enumerate(script_data):
       narration: str = scene.get('narration', '')
+      emotion: str = scene.get('emotion', '')
       if not narration.strip():
         logger.warning('씬 %d narration 없음, 건너뜀', idx + 1)
         paths.append('')
         continue
       path = await generate_audio(
-        narration, idx, voice=TTS_VOICE, use_cache=use_cache
+        narration, idx, voice=TTS_VOICE, use_cache=use_cache, emotion=emotion
       )
       paths.append(path)
     return paths
@@ -177,6 +220,44 @@ def generate_all_audio(
 
   logger.info('전체 오디오 생성 완료 (%d개)', len(paths))
   return paths
+
+
+# ─────────────── 캐시 정리 ─────────────────────────────────────────────
+
+
+def cmd_clean_cache(force: bool = False) -> None:
+  """중복 캐시 파일 정리 (씬 인덱스별 가장 최신 1개 유지)"""
+  by_scene: dict[str, list[Path]] = defaultdict(list)
+  for f in CACHE_DIR.glob('*_audio.mp3'):
+    # 파일명 패턴: {hash8}_{idx:02d}_audio.mp3
+    parts = f.stem.split('_')
+    if len(parts) >= 2:
+      scene_idx = parts[1]  # '00', '01', ...
+      by_scene[scene_idx].append(f)
+
+  to_delete: list[Path] = []
+  for scene_idx in sorted(by_scene.keys()):
+    files = by_scene[scene_idx]
+    if len(files) > 1:
+      # 가장 최신 파일 1개 유지, 나머지 삭제 대상
+      files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+      to_delete.extend(files[1:])
+
+  if not to_delete:
+    logger.info('정리할 중복 파일 없음')
+    return
+
+  logger.info('삭제 대상 파일 %d개:', len(to_delete))
+  for f in to_delete:
+    logger.info('  - %s (%d bytes)', f, f.stat().st_size)
+
+  if force:
+    for f in to_delete:
+      f.unlink()
+      logger.info('삭제 완료: %s', f)
+    logger.info('캐시 정리 완료')
+  else:
+    logger.info('[DRY-RUN] 실제 삭제하려면 --clean-cache --force 사용')
 
 
 # ─────────────── --check 모드 ─────────────────────────────────────────
@@ -231,7 +312,7 @@ def cmd_check() -> None:
 def main() -> None:
   """명령행 인터페이스"""
   parser = argparse.ArgumentParser(
-    description='Step 3: Edge-TTS로 나레이션 오디오 생성'
+    description='Step 3: Edge-TTS로 나레이션 오디오 생성 (감정 파라미터 적용)'
   )
   parser.add_argument(
     'nlp_cache',
@@ -242,16 +323,26 @@ def main() -> None:
     '--check', action='store_true', help='edge-tts 설치 및 음성 테스트'
   )
   parser.add_argument(
-    '--scene', type=int, default=0, help='특정 씬만 생성 (0-based 인덱스)'
+    '--scene', type=int, default=0, help='특정 씬만 생성 (0-based 인덱스, 1부터 시작)'
   )
   parser.add_argument(
     '--no-cache', action='store_true', help='캐시 무시하고 재생성'
+  )
+  parser.add_argument(
+    '--clean-cache', action='store_true', help='중복 캐시 파일 목록 출력 (dry-run)'
+  )
+  parser.add_argument(
+    '--force', action='store_true', help='--clean-cache와 함께 사용 시 실제 삭제'
   )
 
   args = parser.parse_args()
 
   if args.check:
     cmd_check()
+    return
+
+  if args.clean_cache:
+    cmd_clean_cache(force=args.force)
     return
 
   if not args.nlp_cache:
@@ -277,9 +368,12 @@ def main() -> None:
   if args.scene > 0 and args.scene <= len(script_data):
     scene = script_data[args.scene - 1]
     narration = scene.get('narration', '')
+    emotion = scene.get('emotion', '')
     if narration.strip():
       asyncio.run(
-        generate_audio(narration, args.scene - 1, use_cache=not args.no_cache)
+        generate_audio(
+          narration, args.scene - 1, use_cache=not args.no_cache, emotion=emotion
+        )
       )
     else:
       logger.warning('씬 %d narration 없음', args.scene)
