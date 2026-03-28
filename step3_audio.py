@@ -2,7 +2,7 @@
 Step 3: Audio — Edge-TTS로 나레이션 오디오 생성 (감정 파라미터 적용)
 
 입력: modern_script_data (list[dict])
-출력: generated_audio_paths (list[str])
+출력: generated_audio_paths (list[str]) → Step 4 (자막 생성)에 전달
 
 ## 사용법
   uv run python step3_audio.py --check
@@ -173,62 +173,14 @@ def get_audio_duration(path: str) -> float:
     return 0.0
 
 
-# ─────────────── 자막 생성 ────────────────────────────────────────────
-
-
-def seconds_to_srt_time(seconds: float) -> str:
-  """초(float)를 SRT 타임코드 형식(HH:MM:SS,mmm)으로 변환"""
-  h = int(seconds // 3600)
-  m = int((seconds % 3600) // 60)
-  s = int(seconds % 60)
-  ms = int((seconds % 1) * 1000)
-  return f'{h:02d}:{m:02d}:{s:02d},{ms:03d}'
-
-
-def generate_subtitles(
-  audio_paths: list[str],
-  script_data: list[dict],
-  output_path: Path,
-) -> str:
-  """오디오 길이 기반으로 SRT 자막 파일 생성 → 경로 반환"""
-  blocks: list[str] = []
-  current_time = 0.0
-
-  for idx, (path, scene) in enumerate(zip(audio_paths, script_data)):
-    narration: str = scene.get('narration', '')
-    if not path or not narration.strip():
-      continue
-
-    duration = get_audio_duration(path)
-    end_time = current_time + duration
-
-    start_str = seconds_to_srt_time(current_time)
-    end_str = seconds_to_srt_time(end_time)
-    block = f'{idx + 1}\n{start_str} --> {end_str}\n{narration}\n'
-    blocks.append(block)
-
-    current_time = end_time
-
-  srt_content = '\n'.join(blocks)
-  output_path.write_text(srt_content, encoding='utf-8')
-  logger.info('자막 파일 생성 완료: %s (%d개 블록)', output_path, len(blocks))
-  return str(output_path.resolve())
-
-
 # ─────────────── 배치 처리 ─────────────────────────────────────────────
 
 
 def generate_all_audio(
   script_data: list[dict],
   use_cache: bool = True,
-) -> dict[str, Any]:
-  """Step 3 메인 함수: 전체 씬 나레이션 오디오 + 자막 생성
-
-  반환값: {
-    'audio_paths': list[str],  # 씬별 MP3 경로
-    'subtitle_path': str,      # SRT 자막 파일 경로
-  }
-  """
+) -> list[str]:
+  """Step 3 메인 함수: 전체 씬 나레이션 오디오 생성"""
   logger.info('오디오 생성 시작 (총 %d씬)', len(script_data))
 
   async def _run_all() -> list[str]:
@@ -267,21 +219,7 @@ def generate_all_audio(
     logger.warning('오디오 생성 실패 씬: %s', [i + 1 for i, _ in failed])
 
   logger.info('전체 오디오 생성 완료 (%d개)', len(paths))
-
-  # 자막 파일 생성 (캐시 활용)
-  paths_key = '|'.join(sorted(p for p in paths if p))
-  subtitle_hash = hashlib.md5(paths_key.encode('utf-8')).hexdigest()[:8]
-  subtitle_path = CACHE_DIR / f'{subtitle_hash}_subtitles.srt'
-
-  if use_cache and subtitle_path.exists():
-    logger.info('자막 캐시 사용: %s', subtitle_path)
-  else:
-    generate_subtitles(paths, script_data, subtitle_path)
-
-  return {
-    'audio_paths': paths,
-    'subtitle_path': str(subtitle_path.resolve()),
-  }
+  return paths
 
 
 # ─────────────── 캐시 정리 ─────────────────────────────────────────────
@@ -442,18 +380,13 @@ def main() -> None:
     return
 
   # 전체 씬 생성
-  result = generate_all_audio(script_data, use_cache=not args.no_cache)
-  audio_paths = result['audio_paths']
-  subtitle_path = result['subtitle_path']
-
-  for idx, path in enumerate(audio_paths):
+  paths = generate_all_audio(script_data, use_cache=not args.no_cache)
+  for idx, path in enumerate(paths):
     if path:
       duration = get_audio_duration(path)
       print(f'씬 {idx + 1}: {path} ({duration:.2f}초)')
     else:
       print(f'씬 {idx + 1}: [실패]')
-
-  print(f'자막 파일: {subtitle_path}')
 
 
 if __name__ == '__main__':
