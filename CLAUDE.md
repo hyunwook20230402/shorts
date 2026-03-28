@@ -327,9 +327,19 @@ uv run python step4_subtitle.py --clean-cache [--force]
 소식을 듣고도 모른 척하며 받은 술은 예상외로 맛이 뛰어났습니다.
 ```
 
+### audio-visual-qa-agent 연동 (Step 3 완료 후)
+- **역할**: Step 3 오디오 + Step 2 이미지 조화 검증, Step 5 타이밍 파라미터 산출
+- **출력**:
+  - JSON 보고서: `cache/step4/audio_visual_qa_report.json` (씬별 점수, 편집 파라미터)
+  - 콘솔 MD 보고서 (파일 저장 안 함)
+- **주의**: 루트에 임시 py/txt/md 파일 생성 금지 (캐시 폴더만 사용)
+
 ### Step 4 → Step 5 인터페이스
 - `subtitle_path`: SRT 파일 경로 → Step 5 MoviePy에 전달 (영상에 오버레이)
-- Step 4 출력물: `cache/step4/{hash8}_subtitles.srt`
+- `qa_report`: JSON 보고서 → Step 5 scene_durations 파라미터로 사용
+- Step 4 출력물:
+  - `cache/step4/{hash8}_subtitles.srt` (자막 SRT)
+  - `cache/step4/audio_visual_qa_report.json` (QA 리포트)
 
 ## Step 3 개발 중 오류 및 해결책 (필독: 반복 금지)
 
