@@ -114,7 +114,7 @@ ELEVENLABS_API_KEY  # 선택
 | Step 2 이미지 프롬프트 생성/수정 필요 | `art-director-agent` | ComfyUI 프롬프트 최적화 |
 | ComfyUI 이미지 생성 완료 | `quality-assurance-agent` | 대본-이미지 정합성 검증 + 자가 치유 루프 |
 | Step 3 오디오 생성 완료 | `audio-visual-qa-agent` | 음성-이미지 조화 검증 + Step 4 타이밍 파라미터 산출 |
-| 대본/영상 완성 후 YouTube 업로드 준비 | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 생성 |
+| **Step 5 영상 생성 완료** (`cache/step5/*.mp4` 생성됨) | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 생성 → `cache/step5/{hash8}_seo_metadata.json` 저장 |
 | 새 기능/파이프라인 스텝 기획 시작 | `prd-writer-shorts` | 표준 PRD 작성 |
 | PRD 작성 완료 | `prd-validator` | 완성도/명확성/실현 가능성 검증 |
 

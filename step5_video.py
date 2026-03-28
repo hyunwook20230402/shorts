@@ -19,7 +19,6 @@ import os
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -405,7 +404,7 @@ def cmd_check() -> None:
 
   # 3. Pillow 확인
   try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import ImageFont  # noqa: F401
     print('[OK] Pillow 임포트 성공')
   except ImportError as e:
     print(f'[FAIL] Pillow 미설치: {e}')

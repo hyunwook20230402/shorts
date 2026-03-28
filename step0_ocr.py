@@ -6,10 +6,8 @@ Step 0: OCR — 고전시가 이미지에서 원문 텍스트 추출
 """
 
 import base64
-import json
 import logging
 import os
-import uuid
 from pathlib import Path
 
 import requests
@@ -157,7 +155,7 @@ def call_hcx005_ocr(image_base64: str, media_type: str) -> str:
     try:
       error_detail = e.response.text
       logger.error('응답 본문: %s', error_detail)
-    except:
+    except Exception:
       pass
     raise RuntimeError(f'HCX-005 API 호출 중 오류 발생: {str(e)}') from e
 

@@ -60,6 +60,13 @@ Append these to every prompt:
 For artistic styles, add as appropriate:
 `photorealistic` / `traditional korean ink painting style` / `cinematic film grain`
 
+## 출력 파일 경로 (IMPORTANT)
+
+- 프롬프트 결과는 콘솔 출력으로만 제공 (파일 저장 없음)
+- Step 2(`step2_vision.py`)가 이 출력을 `image_prompts` 리스트로 수신하여 ComfyUI에 전달함
+- 임시 `.py`, `.txt`, `.md` 파일 생성 금지 — 루트 디렉터리 오염 방지
+- 메모리 저장 필요 시: `C:\Users\user\workspaces\shorts\.claude\agent-memory\art-director-agent\`
+
 ## 출력 형식
 
 For each scene, output in this structured format:

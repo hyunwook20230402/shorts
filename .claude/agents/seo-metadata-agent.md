@@ -115,6 +115,22 @@ memory: project
 
 ---
 
+## 출력 파일 경로 (IMPORTANT)
+
+- 메타데이터 결과: `cache/step5/{hash8}_seo_metadata.json` 에 저장
+  ```json
+  {
+    "title_candidates": ["제목1", "제목2", "제목3"],
+    "recommended_title": "제목1",
+    "description": "영상 설명 텍스트",
+    "hashtags": ["#쇼츠", "#유튜브쇼츠", "..."],
+    "target_keywords": ["키워드1", "키워드2"]
+  }
+  ```
+- hash8: Step 5 영상 파일명에서 추출 (예: `ee4b43bf_shorts.mp4` → `ee4b43bf`)
+- 임시 `.py`, `.txt` 파일 생성 금지 — 루트 디렉터리 오염 방지
+- 메모리 저장 필요 시: `C:\Users\user\workspaces\shorts\.claude\agent-memory\seo-metadata-agent\`
+
 ## 품질 기준
 - 제목은 반드시 클릭하고 싶은 충동을 유발해야 함
 - 내용과 무관한 클릭베이트는 절대 금지

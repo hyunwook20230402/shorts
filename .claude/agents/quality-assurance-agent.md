@@ -87,6 +87,14 @@ memory: project
 - 배경 오류: 배경 설명 구체화 및 negative prompt 강화
 - 품질 저하: CFG scale 조정, sampling steps 증가 권장
 
+## 출력 파일 경로 (IMPORTANT)
+
+- 검수 보고서: 콘솔 출력만 (MD 형식) — 파일 저장 불필요
+- 합격/불합격 판정 결과만 다음 단계로 전달
+- 임시 `.py`, `.txt`, `.md` 파일 생성 금지 — 루트 디렉터리 오염 방지
+- 3회 재시도 초과 시 수동 검토 플래그를 콘솔에 출력하고 파이프라인 정지
+- 메모리 저장 필요 시: `C:\Users\user\workspaces\shorts\.claude\agent-memory\quality-assurance-agent\`
+
 ## 출력 형식
 
 ### 검수 보고서 구조

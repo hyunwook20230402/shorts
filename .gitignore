@@ -16,6 +16,12 @@ build/
 .venv/
 venv/
 
+# 린트 캐시
+.ruff_cache/
+
+# 빌드 로그
+*.log
+
 # IDE
 .idea/
 .vscode/

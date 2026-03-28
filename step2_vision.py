@@ -24,6 +24,7 @@ Step 2: Vision — ComfyUI API로 웹툰 이미지 생성
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -71,7 +72,7 @@ NEGATIVE_PROMPT = (
 
 def get_cache_path(prompt: str, idx: int) -> Path:
   """이미지 캐시 경로 생성"""
-  prompt_hash = str(abs(hash(prompt)))[-8:]
+  prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()[:8]
   return CACHE_DIR / f'{prompt_hash}_{idx:02d}_image.png'
 
 
@@ -294,7 +295,7 @@ def cmd_check() -> None:
     response = requests.get(f'{COMFYUI_BASE_URL}/system_stats', timeout=10)
     response.raise_for_status()
     info = response.json()
-    print(f'[OK] 서버 연결 성공')
+    print('[OK] 서버 연결 성공')
     print(f'     ComfyUI: {info["system"].get("comfyui_version", "?")}')
     print(f'     GPU: {info["devices"][0]["name"] if info.get("devices") else "없음"}')
   except Exception as e:
@@ -368,6 +369,6 @@ if __name__ == '__main__':
     # 전체 씬 생성
     print(f'\n전체 {len(image_prompts)}씬 이미지 생성 시작\n')
     paths = generate_all_images(image_prompts, use_cache=use_cache)
-    print(f'\n[OK] 전체 완료')
+    print('\n[OK] 전체 완료')
     for i, p in enumerate(paths, 1):
       print(f'  씬 {i}: {p}')

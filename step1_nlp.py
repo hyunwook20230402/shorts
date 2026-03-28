@@ -356,7 +356,7 @@ def call_hcx005_translate(text: str, historical_context: str = '') -> dict:
       error_detail = e.response.text if hasattr(e, 'response') else ''
       if error_detail:
         logger.error('응답 본문: %s', error_detail)
-    except:
+    except Exception:
       pass
     raise RuntimeError(f'HCX-005 API 호출 중 오류 발생: {str(e)}') from e
 
