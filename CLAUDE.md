@@ -35,521 +35,119 @@ Step 7: Publish    YouTube Data API v3 → Shorts 업로드 (60초 미만)
 ## 핵심 데이터 구조
 
 **상태 관리 객체 (`task_status_dict`):**
-- `task_id` (str, UUID)
-- `current_step` (int, 0-5)
-- `status_message` (str)
-- `is_completed` (bool)
-- `error_log` (dict)
+- `task_id` (str, UUID), `current_step` (int, 0-5), `status` (pending/running/completed/failed)
+- `status_message`, `error_log`, `created_at`, `updated_at`
+- 각 Step 결과 경로: `ocr_text`, `nlp_cache_path`, `image_paths`, `audio_paths`, `subtitle_path`, `video_path`
 
 **Notion Database:**
-- `poem_translation_log`: `original_archaic_text`(X) + `translated_modern_text`(y) 쌍 저장 → 파인튜닝 데이터셋
+- `poem_translation_log`: 원문-현대어 쌍 저장 (파인튜닝 데이터셋)
 - `task_status_log`: 파이프라인 실행 이력
 
 **환경변수 (`.env` 필수):**
 ```
-NOTION_API_KEY
-NOTION_POEM_LOG_DB_ID
-NOTION_TASK_STATUS_DB_ID
-OPENAI_API_KEY
-YOUTUBE_API_KEY
-ELEVENLABS_API_KEY  # 선택
+NOTION_API_KEY, NOTION_POEM_LOG_DB_ID, NOTION_TASK_STATUS_DB_ID
+OPENAI_API_KEY, YOUTUBE_API_KEY, ELEVENLABS_API_KEY (선택)
+COMFYUI_HOST=http://127.0.0.1:8188
 ```
 
 ## 코드 스타일
 
 - 들여쓰기: 스페이스 2칸
-- 변수명: `camelCase` (JS/TS) / `snake_case` (Python - 파이프라인 데이터 변수)
+- 변수명: `snake_case` (Python), `camelCase` (JS/TS)
 - 함수명: 동사로 시작 (`extract_text_from_image`, `generate_image_prompt`)
 - 주석: 한국어
-- Python 타입힌트 필수 (3.10+ 문법)
+- 타입힌트: Python 3.10+ 필수
 - `logging` 모듈 사용 (`print` 금지)
 - API 경로: `/api/v1/` 접두사
 
 ## 구현 규칙
 
-- 모든 API 호출: retry 3회 + 지수 백오프
-- 중간 결과물 디스크 캐시 필수
+- 모든 API 호출: retry 3회 + 지수 백오프 (tenacity 라이브러리)
+- 중간 결과물 디스크 캐시 필수 (cache/stepN/ 디렉토리)
 - 환경변수: `.env` 파일 (하드코딩 금지)
 - 단일 책임 원칙: 한 함수 = 한 가지 역할
 
-## Step 2 주요 기술 결정사항 (ComfyUI)
+## Step 주요 결정사항
 
-### Workflow 노드 구조
-- **DualCLIPLoader**: clip_l + t5xxl 동시 로드 (FLUX.1 필수)
-- **EmptyFlux2LatentImage**: 입력 해상도 = 원하는 출력의 2배 (ComfyUI 50% 축소 보정)
-- **KSampler**: steps=20, cfg=3.5, sampler=euler, scheduler=karras
+### Step 0: OCR
+- HCX-005 API (NCP Clova Studio)로 고전시가 텍스트 추출
+- 캐시: `cache/step0/{이미지명}_ocr.txt`
 
-### ComfyUI 서버 설정 (로컬)
-- 주소: `http://127.0.0.1:8188`
-- 모델: FLUX.1 Dev fp8 (17.2GB, 첫 로드 5~7분)
-- 생성 시간: 씬당 30~45초
-- 폴링: 1초 간격, 최대 1800초
+### Step 1: NLP
+- gpt-4o-mini로 번역 + 씬 분할 (화자, 감정, 배경, 나레이션)
+- Notion DB 자동 로깅
+- 캐시: `cache/step1/{hash8}_nlp.json`
+- **주의**: 캐시 경로는 `step1_nlp.get_cache_path()` 함수만 사용 (Rule 1 in bug_fixes_and_lessons.md)
+
+### Step 2: ComfyUI
+- **노드**: DualCLIPLoader + EmptyFlux2LatentImage (2배 해상도) + KSampler
+- **모델**: FLUX.1 Dev fp8 (17.2GB, 첫 로드 5~7분)
+- **로컬 기본값**: `http://127.0.0.1:8188`
+- **생성 시간**: 씬당 30~45초, 폴링 1초 간격
+
+### Step 3: TTS (Edge-TTS)
+- **캐시 키**: `hashlib.md5(f'{text}|{voice}|{rate}|{pitch}'.encode()).hexdigest()[:8]`
+- **주의**: Python `hash()` 금지 (PYTHONHASHSEED 의존성)
+- **pitch 단위**: Hz 사용 (% 아님)
+
+### Step 4: 자막 (SRT)
+- **포맷**: SubRip, `narration` 필드 사용
+- **캐시**: `cache/step4/{hash8}_subtitles.srt`
+- **audio-visual-qa**: `cache/step4/audio_visual_qa_report.json` 생성
+
+### Step 5: 영상 (MoviePy)
+- **출력**: `cache/step5/{hash8}_shorts.mp4` (1080×1920, 9:16, 60초 이내)
+- **타이밍**: audio-visual-qa 리포트의 `scene_durations` 배열 사용
+
+### Step 6: Web UI
+- **FastAPI** 비동기 처리: `ThreadPoolExecutor(max_workers=2)` + `asyncio.run_in_executor()`
+- **Streamlit** 폴링: `@st.fragment(run_every=2)` (캐시 제거, 전체 페이지 깜빡임 방지)
+- **상태 관리**: 인메모리 `task_status_dict[task_id: str]: TaskStatus`
+
+## 에이전트 자동 호출 규칙 (IMPORTANT)
+
+| 상황 | 에이전트 | 목적 |
+|------|---------|------|
+| 고전시가 원문 텍스트 입력 | `historical-context-agent` | Step 1 NLP 전 역사적 맥락 조사 |
+| Step 2 이미지 프롬프트 생성/수정 | `art-director-agent` | ComfyUI 프롬프트 최적화 |
+| ComfyUI 이미지 생성 완료 | `quality-assurance-agent` | 대본-이미지 정합성 검증 + 자가 치유 |
+| Step 3 오디오 생성 완료 | `audio-visual-qa-agent` | 음성-이미지 조화 검증 + 타이밍 파라미터 산출 |
+| Step 5 영상 생성 완료 | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 → `cache/step5/{hash8}_seo_metadata.json` |
+| 새 기능/파이프라인 기획 | `prd-writer-shorts` | 표준 PRD 작성 |
+| PRD 작성 완료 | `prd-validator` | 완성도/명확성/실현 가능성 검증 |
 
 ## Git 규칙
 
 - **커밋 전 린트 실행 필수** (ruff check)
-- 커밋 메시지: 한국어
-- 브랜치명: `feature/기능명` 형식
-- Step 단위로 의미있는 커밋 분리
+- **커밋 메시지**: 한국어
+- **브랜치명**: `feature/기능명` 형식
+- **계획 완료 후 자동 커밋** (plan mode 규칙)
 
-## 에이전트 구성 (`.claude/agents/`)
+## 주요 참고 자료
 
-| 에이전트 | 역할 |
-|---------|------|
-| `prd-writer-shorts` | PRD 작성/업데이트 전담 |
-| `prd-validator` | PRD 완성도 검증 |
-| `historical-context-agent` | 고전시가 역사적 배경 조사 |
-| `art-director-agent` | ComfyUI 프롬프트 최적화 |
-| `seo-metadata-agent` | YouTube 업로드 메타데이터 생성 |
-| `quality-assurance-agent` | 생성 이미지-대본 정합성 검증 |
-| `audio-visual-qa-agent` | 음성+이미지 조화 검증, Step 4 타이밍 파라미터 산출 |
+- **개발 교훈 및 버그 해결**: `.claude/rules/bug_fixes_and_lessons.md` 참고
+- **코드 스타일**: `.claude/rules/code-style.md`, `.claude/rules/naming_conventions.md`
+- **Step 2 품질 개선 로드맵**: `.claude/plans/step2-quality-upgrade-roadmap.md`
+- **에러 처리**: `.claude/rules/error_handling_logging.md`
 
-## 에이전트 자동 호출 규칙 (IMPORTANT)
+## 트러블슈팅
 
-아래 조건에 해당하면 반드시 해당 에이전트를 먼저 호출할 것.
-직접 처리하거나 일반 Explore 에이전트로 대체하지 말 것.
+**ComfyUI 연결 실패**:
+- `COMFYUI_HOST` 환경변수 확인 (기본값: `http://127.0.0.1:8188`)
+- `netstat -ano | grep 8188`으로 프로세스 상태 확인
 
-| 상황 | 호출할 에이전트 | 목적 |
-|------|-------------|------|
-| 고전시가 원문 텍스트 입력됨 | `historical-context-agent` | Step 1 NLP 전, 역사적 맥락 조사 |
-| Step 2 이미지 프롬프트 생성/수정 필요 | `art-director-agent` | ComfyUI 프롬프트 최적화 |
-| ComfyUI 이미지 생성 완료 | `quality-assurance-agent` | 대본-이미지 정합성 검증 + 자가 치유 루프 |
-| Step 3 오디오 생성 완료 | `audio-visual-qa-agent` | 음성-이미지 조화 검증 + Step 4 타이밍 파라미터 산출 |
-| **Step 5 영상 생성 완료** (`cache/step5/*.mp4` 생성됨) | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 생성 → `cache/step5/{hash8}_seo_metadata.json` 저장 |
-| 새 기능/파이프라인 스텝 기획 시작 | `prd-writer-shorts` | 표준 PRD 작성 |
-| PRD 작성 완료 | `prd-validator` | 완성도/명확성/실현 가능성 검증 |
+**Step 캐시 무효화**:
+- 각 Step 모듈의 `get_cache_path()` 함수 사용 (Rule 1-2)
+- API 라우터에서 `use_cache` 파라미터 명시적 전달 (Rule 3)
 
-## Step 2 개발 교훈 및 향후 계획
+**Streamlit 폴링 이슈**:
+- `@st.cache_data(ttl=N)` 금지 (부작용 야기)
+- `@st.fragment(run_every=N)` 사용 (폴링 블록만 재실행)
 
-### 1차 완료 (2026-03-28)
-- **목표:** 고전시가 텍스트 → 웹툰 이미지 자동 생성 (기초 파이프라인)
-- **결과:** 7개 씬 PNG 생성, 해상도 512×912 (9:16)
-- **주요 오류 및 해결:**
-  1. CLIPLoader 단일 사용 → DualCLIPLoader로 교체 (t5xxl KeyError)
-  2. 해상도 256×456 부족 → EmptyFlux2LatentImage 2배 입력 (ComfyUI 50% 축소 보정)
-  3. 30분 타임아웃 → ComfyUI 프로세스 재시작 + 폴링 로직 개선
-
-### 2차 계획 (Step 3~5 후 수행)
-- **목표:** 웹툰 고품질화 (대본-이미지 정합성, 캐릭터 일관성, 컷 연결성)
-- **방법:**
-  1. 국립중앙박물관 오픈 이미지 API로 조선시대 풍속화 수집 (저작권 문제없음)
-  2. FLUX.1 + LoRA 학습 (kohya_ss 또는 SimpleTuner)
-  3. 캐릭터 Dreambooth LoRA로 외모 일관성 확보
-  4. IPAdapter로 씬 간 연결성 개선 (img2img)
-  5. 컷 수 확장: 7개 → 20~30개
-- **자세한 로드맵:** `.claude/plans/step2-quality-upgrade-roadmap.md` 참고
-
-## ComfyUI 서버 환경 상세
-
-### 로컬 서버 (현재 기본값)
-- **주소:** `http://127.0.0.1:8188`
-- **OS:** Windows 11, ComfyUI v0.18.1
-- **GPU:** NVIDIA RTX 4070 Laptop (8GB VRAM, cudaMallocAsync)
-- **커스텀 노드:** KJ 노드 없음 (DiffusionModelLoaderKJ, VAELoaderKJ 사용 불가)
-- **모델 경로:** `flux1-dev-fp8.safetensors` (prefix 없음)
-- **성능:**
-  - 모델 첫 로드: 5~7분 (캐싱 후 2분)
-  - 씬당 생성 시간: 30~45초
-  - 최대 폴링 대기: 1800초
-
-### 외부 서버 (선택사항)
-- **주소:** `http://100.95.34.69:8188`
-- **OS:** Linux, ComfyUI v0.18.1, Python 3.13
-- **GPU:** NVIDIA RTX 4090
-- **커스텀 노드:** KJ 노드 있음 (DiffusionModelLoaderKJ, VAELoaderKJ 사용 가능)
-- **모델 경로:** `FLUX1/flux1-dev-fp8.safetensors` (FLUX1/ prefix 필요)
-
-### 설치된 모델 (로컬 기준)
-| 종류 | 파일명 | 폴더 |
-|------|--------|------|
-| Diffusion | flux1-dev-fp8.safetensors | diffusion_models/ |
-| Diffusion | flux1-dev.safetensors | checkpoints/ |
-| VAE | ae.safetensors | vae/ |
-| CLIP | clip_l.safetensors | clip/ |
-| T5 CLIP | t5xxl_fp8_e4m3fn.safetensors | clip/ |
-
-## 로컬 서버 검증된 Workflow 노드 구조 (2026-03-28)
-
-```
-1. UNETLoader
-   - unet_name: flux1-dev-fp8.safetensors
-   - weight_dtype: fp8_e4m3fn
-
-2. VAELoader
-   - vae_name: ae.safetensors
-
-3. DualCLIPLoader (필수: clip_l + t5xxl 동시 로드)
-   - clip_name1: clip_l.safetensors
-   - clip_name2: t5xxl_fp8_e4m3fn.safetensors
-   - type: flux
-
-4. CLIPTextEncodeFlux
-   - clip: [3, 0]
-   - clip_l: <TEXT_PROMPT>
-   - t5xxl: <TEXT_PROMPT>
-   - guidance: 3.5
-
-5. EmptyFlux2LatentImage (해상도 보정: 원하는 출력의 2배 입력)
-   - width: 1024 (원하는 출력 512의 2배)
-   - height: 1824 (원하는 출력 912의 2배)
-   - batch_size: 1
-
-6. KSampler
-   - seed: <random>
-   - steps: 20
-   - cfg: 3.5
-   - sampler_name: euler
-   - scheduler: karras
-   - denoise: 1.0
-
-7. VAEDecode
-   - samples: [6, 0]
-   - vae: [2, 0]
-
-8. SaveImage
-   - filename_prefix: shorts_
-```
-
-**⚠️ 주의:** 현재 로컬 ComfyUI는 입력 해상도의 50%로 출력함.
-원하는 최종 해상도의 2배를 입력해야 함 (1024×1824 입력 → 512×912 출력).
-
-## Step 2 개발 중 오류 및 해결책 (필독: 반복 금지)
-
-### 오류 1: 서버 주소 혼동
-외부 IP와 로컬을 혼동 → 테스트 결과 엉뚱함
-**→ 항상 .env의 COMFYUI_HOST 값 기준으로만 판단. IP 하드코딩 금지.**
-
-### 오류 2: /object_info 없이 파라미터 추측
-허용되지 않는 값 임의 작성 → 400 Bad Request 반복
-**→ 새 ComfyUI 서버 연결 시 반드시 /object_info 먼저 확인.**
-
-### 오류 3: 모델 타입별 로더 혼동
-fp8 모델인데 CheckpointLoaderSimple 사용 → 모델 목록 비어있음
-**→ diffusion_models 경로면 DiffusionModelLoaderKJ (또는 UNETLoader) 사용.**
-
-### 오류 4: CLIPTextEncodeFlux 파라미터 타입 오해
-CLIP 노드 출력을 clip_l, t5xxl에 연결 → Return type mismatch
-**→ clip_l과 t5xxl에 프롬프트 텍스트를 직접 입력할 것.**
-
-### 오류 5: VAEDecode에 MODEL 타입 연결
-DiffusionModelLoaderKJ 출력을 VAEDecode.vae에 연결 → 타입 불일치
-**→ VAELoader를 별도로 추가해서 VAE 로드 후 연결.**
-
-### 오류 6: Python 타입으로 enum 파라미터 전달
-`sage_attention: False` (bool) → ComfyUI API는 문자열만 허용
-**→ 문자열 값 사용: 'disabled', 'fp8_e4m3fn', 'default', 'main_device', 'flux' 등.**
-
-### 오류 7: 서버 환경별 노드 차이 미확인
-로컬에는 KJ 노드 없음 → 외부 서버 workflow를 로컬에서 실행 시도
-**→ 서버 전환 시 /object_info로 노드 존재 여부 먼저 확인. 로컬/외부 별도 workflow 유지.**
-
-### 오류 8: 가짜 API 200 응답 (30분 낭비)
-서버가 200 응답하지만 작업 처리 안 함 → 1800초 타임아웃 후에야 에러 발생
-**→ 제출 후 2분 안에 GPU 사용량 증가 없으면 즉시 ComfyUI 프로세스 확인. `netstat -ano | grep 8188`으로 PID 확인. comfyui.log 검토.**
-
-### 오류 9: DualCLIPLoader 누락
-CLIPLoader('clip_l.safetensors')만 사용 → CLIPTextEncodeFlux에서 t5xxl 토큰화 불가
-**→ DualCLIPLoader(clip_l + t5xxl, type='flux')로 통합 로드. .env에 COMFYUI_CLIP2 추가.**
-
-### 오류 10: 모델 로드 진행 상황 미공유
-10분 넘게 걸리는데 진행 상황 알 수 없음 → 사용자 혼란
-**→ 제출 직후 예상 시간 안내. 30초마다 경과 시간 출력. GPU 사용량으로 단계 파악.**
-
-### 오류 11: 테스트 파일 남발
-디버깅 중 임시 파일 21개 생성 → 코드베이스 오염
-**→ 디버깅 코드는 기존 파일에 --check 플래그로 통합. 임시 파일 즉시 삭제.**
-
-## Step 3 주요 기술 결정사항 (TTS)
-
-### 캐시 키 설계
-- **결정론적 해시 필수**: `hashlib.md5(f'{text}|{voice}|{rate}|{pitch}'.encode()).hexdigest()[:8]`
-- Python `hash()` 내장 함수 사용 금지 (PYTHONHASHSEED 의존성으로 캐시 무효화 버그 발생, 실제로 7씬에 16개 파일 누적)
-- 파라미터(rate/pitch) 변경 시 자동으로 캐시 미스 발생하여 재생성됨
-
-### 감정별 TTS 파라미터 (EMOTION_VOICE_PARAMS)
-- Step 1 NLP의 `emotion` 필드값을 그대로 키로 사용 (테이블 EMOTION_VOICE_PARAMS 참조: step3_audio.py line 47-60)
-- pitch 단위: **Hz** (% 단위는 음성별 결과 편차 큼, Hz가 예측 가능)
-  - 예: `pitch="-5Hz"`는 절대 오프셋, `pitch="-5%"`는 상대 배율
-- `default` 키: 매핑 미정의 감정값에 대한 폴백, 시 낭송 기본 느낌 (`rate=-10%, pitch=-2Hz`)
-- 감정별 파라미터:
-  - 긍정(기쁨/감탄): rate 약간 빠르거나 정상, pitch 높음
-  - 부정(슬픔/피곤함): rate 느림, pitch 낮음
-  - 중립(사색적/회상): rate 느림, pitch 정상~낮음
-
-### edge-tts Communicate API 사용
-- `edge_tts.Communicate(text, voice, rate, pitch)` — SSML 불필요, 파라미터 직접 전달
-- 지원 음성 3종: ko-KR-SunHiNeural(여), ko-KR-InJoonNeural(남), ko-KR-HyunsuMultilingualNeural(남)
-- 감정 스타일 API 미지원 (무료 제한, Azure TTS 유료 API는 SSML style 파라미터 지원)
-- prosody 파라미터(rate/pitch)로 감정 표현 대체 → 시 낭송 느낌 연출 가능
-
-### Step 3 → Step 4 인터페이스
-- `generate_all_audio()` 반환값: `list[str]` (오디오 경로 목록, 실패 씬은 빈 문자열)
-- 이를 Step 4에 전달하여 자막 생성
-- 전체 오디오 합산: Shorts 60초 제한 (현재 7씬 평균 54초, 안전 범위)
+**Step 1 NLP 결과 미표시**:
+- `@st.cache_data` 제거, 매 폴링마다 실제 API 조회
+- 완료 시에만 `st.rerun()` 호출
 
 ---
 
-## Step 4 주요 기술 결정사항 (SRT 자막)
-
-### 목적 및 위치
-- **YouTube Shorts는 음소거 시청 비율 높음** → 자막 필수 (특히 고전시가)
-- **Step 4 독립 모듈** (`step4_subtitle.py`): Step 3 오디오 경로 + Step 1 NLP 캐시 → SRT 자막
-- **캐시 위치**: `cache/step4/` (step3과 분리)
-
-### SRT 포맷 및 생성
-- **파일 포맷**: SubRip (SRT) — MoviePy/YouTube 모두 지원
-- **자막 텍스트**: `narration` 필드 사용 (TTS 음성과 정확히 일치)
-- **타임코드**: 오디오 길이(mutagen 측정) 기반 자동 계산
-- **캐시 키**: 오디오 경로 목록 MD5 해시 → `cache/step4/{hash8}_subtitles.srt`
-- **함수**:
-  - `seconds_to_srt_time(seconds: float) -> str`: 초를 `HH:MM:SS,mmm` 형식으로 변환
-  - `generate_subtitles(audio_paths, script_data, output_path)`: SRT 파일 생성
-
-### CLI 사용법
-```
-# --audio-dir: 디렉터리 내 *.mp3 자동 수집 (씬 인덱스 순 정렬)
-uv run python step4_subtitle.py cache/step1/xxx_nlp.json --audio-dir cache/step3
-
-# 명시적 파일 목록
-uv run python step4_subtitle.py cache/step1/xxx_nlp.json cache/step3/hash_00_audio.mp3 ...
-
-# 캐시 정리
-uv run python step4_subtitle.py --clean-cache [--force]
-```
-
-### SRT 예시
-```
-1
-00:00:00,000 --> 00:00:09,119
-길을 재촉하던 중 피곤해진 말을 위해 잠시 쉬기로 하고...
-
-2
-00:00:09,119 --> 00:00:14,711
-소식을 듣고도 모른 척하며 받은 술은 예상외로 맛이 뛰어났습니다.
-```
-
-### audio-visual-qa-agent 연동 (Step 3 완료 후)
-- **역할**: Step 3 오디오 + Step 2 이미지 조화 검증, Step 5 타이밍 파라미터 산출
-- **출력**:
-  - JSON 보고서: `cache/step4/audio_visual_qa_report.json` (씬별 점수, 편집 파라미터)
-  - 콘솔 MD 보고서 (파일 저장 안 함)
-- **주의**: 루트에 임시 py/txt/md 파일 생성 금지 (캐시 폴더만 사용)
-
-### Step 4 → Step 5 인터페이스
-- `subtitle_path`: SRT 파일 경로 → Step 5 MoviePy에 전달 (영상에 오버레이)
-- `qa_report`: JSON 보고서 → Step 5 scene_durations 파라미터로 사용
-- Step 4 출력물:
-  - `cache/step4/{hash8}_subtitles.srt` (자막 SRT)
-  - `cache/step4/audio_visual_qa_report.json` (QA 리포트)
-
-## Step 3 개발 중 오류 및 해결책 (필독: 반복 금지)
-
-### 오류 1: Python hash() 함수로 캐시 키 생성
-PYTHONHASHSEED 랜덤 시드 의존 → 실행마다 다른 해시 → 캐시 무효화 → 7씬에 16개 파일 생성
-**→ hashlib.md5(text.encode()).hexdigest()[:8] 사용. hash() 내장 함수 절대 금지.**
-**확인**: `uv run python step3_audio.py cache/step1/xxx_nlp.json` 연속 2회 실행 시 "캐시 사용:" 로그 확인
-
-### 오류 2: pitch 파라미터 단위 혼용
-`pitch="-5%"` 형식은 음성마다 결과 편차가 큼 → 감정 표현 일관성 부족
-**→ Hz 단위 사용: `pitch="-5Hz"`. edge-tts는 두 형식 모두 허용하지만 Hz가 예측 가능.**
-**예시**: ko-KR-SunHiNeural 기준 `-5Hz` 낮춤 + `rate=-10%` 느림 = 슬픔 표현
-
-### 오류 3: 파이프라인 단계 재편성
-초기 Step 0~5 (6단계)로 설계 → 자막 생성을 Step 4로 독립화 필요
-**→ 새 구조: Step 0~6 (7단계)으로 재편**
-- Step 3: 오디오 생성만 (반환값 list[str])
-- Step 4: 자막 생성 (별도 모듈 step4_subtitle.py)
-- Step 5: 영상 합성 (기존 Step 4)
-- Step 6: YouTube 업로드 (기존 Step 5)
-**이유**: 각 모듈의 책임 분리, 자막 재생성 시에도 오디오 전체 재생성 불필요
-
-## Step 5 주요 기술 결정사항 (MoviePy 영상 합성)
-
-### 목적 및 위치
-- **입력**: Step 2 이미지 (512×912) + Step 3 오디오 (MP3) + Step 4 자막 (SRT) + audio-visual-qa 리포트
-- **출력**: `cache/step5/{hash8}_shorts.mp4` (1080×1920, 9:16, 60초 이내)
-- **처리**: 각 이미지를 씬별 타이밍(`scene_durations`)만큼 표시 + 자막 오버레이
-
-### 해상도 및 Shorts 규격
-- **YouTube Shorts**: 1080×1920 (9:16), 60초 이내
-- **Step 2 → Step 5**: 512×912 스케일 업샘플링 또는 ComfyUI 직접 생성
-- **음성 길이**: Step 4 QA 리포트에서 제공된 `scene_durations` 배열 사용
-- **자막**: SRT 파일의 타이밍에 정확히 맞춰 오버레이
-
-### 씬 타이밍 계산
-```python
-# audio-visual-qa 리포트에서:
-scene_durations = [9.1, 5.6, 6.1, 7.3, 8.6, 7.8, 9.8]  # 각 씬 표시 시간 (초)
-total_duration = sum(scene_durations)  # 54.3초 ≤ 60초 제약
-
-# Step 5에서:
-# 각 이미지 clip의 duration = scene_durations[i]
-# 누적 시간: concatenate 또는 CompositeVideoClip으로 배치
-```
-
-### 자막 오버레이
-- **라이브러리**: `pysrt.SubRipFile.parse()` → SRT 파싱
-- **위치**: 화면 하단 (자막 전용 영역)
-- **폰트**: 한글 가독성 (고딕계, 본 크기 42~48pt)
-- **색상**: 흰색(#FFFFFF) + 검은색 배경(shadow)
-- **타이밍**: subtitle.start ~ subtitle.end에 정확히 맞춤
-
-### 캐시 구조
-```
-cache/
-├── step2/              ← PNG 이미지 (512×912)
-├── step3/              ← MP3 오디오
-├── step4/              ← SRT + audio-visual-qa 리포트
-└── step5/              ← 최종 MP4 영상
-```
-
-### CLI 사용법
-```bash
-# Step 4 완료 후 Step 5 실행
-uv run python step5_video.py cache/step1/xxx_nlp.json --audio-dir cache/step3
-```
-
-### Step 5 → Step 7 인터페이스
-- `video_path`: MP4 파일 경로 → YouTube Data API v3에 전달
-- `duration`: 최종 영상 길이 (초) → Shorts 60초 제약 확인
-- 검증: 영상 생성 완료 후 실제 재생 길이 및 해상도 확인
-
-## Step 6 주요 기술 결정사항 (FastAPI + Streamlit 웹 UI)
-
-### 아키텍처
-
-```
-[Streamlit app_ui.py (:8501)]
-    ↓ HTTP requests (requests 라이브러리)
-[FastAPI main_api.py (:8000)]
-    ├── /api/v1/upload                   ← 이미지 업로드
-    ├── /api/v1/pipeline/run             ← 전체 파이프라인 백그라운드 실행
-    ├── /api/v1/steps/step0~5            ← 단독 Step 실행
-    ├── /api/v1/tasks/{task_id}          ← 작업 상태 폴링
-    └── /api/v1/cache/{type}/{filename}  ← 파일 서빙 (이미지/오디오/영상)
-    ↓ 직접 import / subprocess
-[step0~5 파이프라인 모듈들]
-```
-
-### 작업 상태 관리 (`task_status_dict`)
-
-- **인메모리 dict**: `dict[str, TaskStatus]`
-- **Task ID 생성**: UUID로 자동 할당 (이미지 업로드 시)
-- **상태 필드**:
-  - `task_id` (str)
-  - `current_step` (int, 0~5)
-  - `status` (pending / running / completed / failed)
-  - `status_message` (str)
-  - `error_log` (dict[str, str])
-  - `created_at`, `updated_at` (datetime)
-  - 각 Step 결과 경로 (ocr_text, nlp_cache_path, image_paths, audio_paths, subtitle_path, video_path)
-
-### 비동기 처리
-
-**전략**: `ThreadPoolExecutor(max_workers=2)` + `asyncio.run_in_executor()`
-- Step 0~5는 동기 함수이므로 스레드풀에서 실행
-- 최대 2개 동시 실행 (GPU 충돌 방지)
-- FastAPI `BackgroundTasks`로 엔드포인트 응답 후 백그라운드 실행
-
-**Step 2 진행 상황**:
-- `generate_all_images` 대신 씬별 루프로 직접 호출
-- 30초마다 `task_status_dict[task_id].status_message` 업데이트
-- Streamlit에서 2초 간격으로 폴링해서 실시간 진행도 표시
-
-**Windows asyncio 이슈 (Step 3)**:
-- Step 3(`edge-tts`)는 내부적으로 `asyncio.run()` 사용
-- 별도 스레드 내에서 `asyncio.new_event_loop()` 생성 후 실행
-
-### FastAPI 파일 구조
-
-```
-main_api.py              ← FastAPI 앱 진입점 + 라우터 등록
-api/
-├── __init__.py
-├── models.py            ← Pydantic 모델 (TaskStatus, UploadResponse 등)
-├── pipeline_runner.py   ← task_status_dict + 비동기 Step 실행 함수
-└── routes/
-    ├── __init__.py
-    ├── upload.py        ← POST /api/v1/upload (파일 업로드)
-    ├── tasks.py         ← GET/DELETE /api/v1/tasks (상태 조회/삭제)
-    ├── steps.py         ← POST /api/v1/steps/step0~5, /pipeline/run
-    └── files.py         ← GET /api/v1/cache/{type}/{filename} (파일 서빙)
-```
-
-### Streamlit 페이지 구성
-
-**사이드바:**
-- API 서버 주소 입력 (기본값: http://localhost:8000/api/v1)
-- 이미지 업로드 → Task ID 발급
-- [전체 파이프라인 실행] 버튼 (백그라운드 실행)
-- 진행률 표시 (st.progress)
-- 작업 정보 (Task ID, 상태, 현재 Step)
-
-**메인 영역 (6개 탭):**
-1. **Step 0: OCR** — 원본 이미지 + OCR 텍스트 (편집 가능)
-2. **Step 1: NLP** — 씬별 카드 (원문/현대어/나레이션/감정/배경/이미지프롬프트)
-3. **Step 2: 이미지** — 씬별 생성 이미지 그리드 (st.columns)
-4. **Step 3: 오디오** — 씬별 st.audio 플레이어
-5. **Step 4: 자막** — SRT 파일 미리보기 (st.code)
-6. **Step 5: 영상** — st.video 플레이어 + 다운로드 버튼
-
-**상태 폴링:**
-```python
-while True:
-  status = requests.get(f"{API_BASE}/tasks/{task_id}").json()
-  # UI 업데이트
-  if status["status"] in ("completed", "failed"):
-    break
-  time.sleep(2)
-```
-
-### 주의사항 & 이슈 해결
-
-#### 1. 작업 디렉토리 고정
-```python
-# main_api.py 상단
-os.chdir(Path(__file__).parent)
-```
-파이프라인 모듈이 `cache/stepN` 상대 경로를 사용하므로 필수.
-
-#### 2. 단독 Step 재실행 시 캐시 무효화
-`StepRequest`에 `invalidate_downstream: bool` 파라미터 추가.
-Step 1 재실행 시 Step 2~ 캐시 자동 삭제 옵션.
-
-#### 3. 대용량 파일 서빙 (MP4)
-`st.video(url)` — FastAPI의 파일 서빙 URL을 직접 전달하여 브라우저가 스트리밍.
-바이트로 읽지 않으므로 메모리 효율적.
-
-#### 4. Path traversal 방지
-```python
-if '..' in filename or filename.startswith('/'):
-  raise HTTPException(status_code=400)
-```
-
-#### 5. CORS 설정
-로컬 개발 환경: `allow_origins=["*"]` (모든 오리진 허용)
-프로덕션: `allow_origins=["http://localhost:8501"]` (Streamlit만)
-
-### CLI 사용법
-
-```bash
-# 터미널 1: FastAPI 서버 시작
-uv run uvicorn main_api:app --host 0.0.0.0 --port 8000 --reload
-
-# 터미널 2: Streamlit UI 시작
-uv run streamlit run app_ui.py --server.port 8501
-```
-
-브라우저: `http://localhost:8501`에서 접근
-
-### 테스트 체크리스트
-
-- [ ] FastAPI 서버 시작 후 `http://localhost:8000/api/v1/health` 응답 확인
-- [ ] FastAPI Swagger UI (`http://localhost:8000/docs`) 접근 확인
-- [ ] Streamlit에서 이미지 업로드 → task_id 발급 확인
-- [ ] [전체 파이프라인 실행] 클릭 → 백그라운드 실행 확인
-- [ ] 상태 폴링 → 진행률 표시 업데이트 확인
-- [ ] 각 Step 완료 후 탭에 결과 표시 확인
-- [ ] Step 2 진행 중 "이미지 생성 중: 1/7씬" 같은 메시지 실시간 표시 확인
-- [ ] 파일 서빙 (이미지/오디오/영상) 정상 작동 확인
-- [ ] 단독 Step 재실행 버튼 클릭 → 해당 Step만 실행 확인
+**마지막 업데이트**: 2026-03-30 (bug_fixes_and_lessons.md 통합, CLAUDE.md 경량화)

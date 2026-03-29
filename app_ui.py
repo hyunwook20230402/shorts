@@ -239,7 +239,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 
@@ -305,7 +305,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 
@@ -350,7 +350,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 
@@ -393,7 +393,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 
@@ -435,7 +435,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 
@@ -486,7 +486,7 @@ else:
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
-              st.rerun()
+              st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
 

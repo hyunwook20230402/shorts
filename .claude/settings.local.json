@@ -130,7 +130,8 @@
       "Bash(curl -s http://127.0.0.1:8001/api/v1/health)",
       "Bash(curl:*)",
       "Bash(grep -E \"\\\\.py$|^d\")",
-      "Bash(xargs -r kill -9)"
+      "Bash(xargs -r kill -9)",
+      "Bash(find .claude/rules -name \"*.md\" -exec wc -c {} +)"
     ]
   }
 }
