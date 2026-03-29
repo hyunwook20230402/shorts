@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 고전시가 원문 이미지를 입력받아 웹툰 스타일 쇼츠 영상을 자동 생성하고 유튜브에 업로드하는 파이프라인 프로젝트.
 
-**현재 상태:** Step 0~4 완료 (OCR → NLP → 이미지 → 오디오 → 자막), Step 5~6 구축 예정
+**현재 상태:** Step 0~5 완료 (OCR → NLP → 이미지 → 오디오 → 자막 → 영상), **Step 6 웹 UI 완료** (FastAPI + Streamlit), Step 7 (YouTube 업로드) 예정
 
 ## 기술 스택
 
-- **프론트엔드:** Streamlit (`app_ui.py`)
-- **백엔드:** FastAPI (`main_api.py`)
+- **프론트엔드:** Streamlit (`app_ui.py`) — 포트 8501
+- **백엔드:** FastAPI (`main_api.py`) — 포트 8000
 - **데이터베이스:** Notion API (Notion Database)
 - **LLM:** gpt-4o-mini (OCR + 번역)
 - **이미지 생성:** ComfyUI API (포트 8188, 웹툰 LoRA 적용)
@@ -28,7 +28,8 @@ Step 2: Vision     ComfyUI API → generated_image_paths (512×912, 9:16)
 Step 3: Audio      TTS API → generated_audio_paths (list[str])
 Step 4: Subtitle   SRT 자막 생성 → subtitle_path (str)
 Step 5: Video      MoviePy → final_video_path (1080×1920, 9:16)
-Step 6: Publish    YouTube Data API v3 → Shorts 업로드 (60초 미만)
+Step 6: Web UI     FastAPI 백엔드 + Streamlit 프론트엔드 (파이프라인 실행 UI)
+Step 7: Publish    YouTube Data API v3 → Shorts 업로드 (60초 미만)
 ```
 
 ## 핵심 데이터 구조
@@ -408,7 +409,147 @@ cache/
 uv run python step5_video.py cache/step1/xxx_nlp.json --audio-dir cache/step3
 ```
 
-### Step 5 → Step 6 인터페이스
+### Step 5 → Step 7 인터페이스
 - `video_path`: MP4 파일 경로 → YouTube Data API v3에 전달
 - `duration`: 최종 영상 길이 (초) → Shorts 60초 제약 확인
 - 검증: 영상 생성 완료 후 실제 재생 길이 및 해상도 확인
+
+## Step 6 주요 기술 결정사항 (FastAPI + Streamlit 웹 UI)
+
+### 아키텍처
+
+```
+[Streamlit app_ui.py (:8501)]
+    ↓ HTTP requests (requests 라이브러리)
+[FastAPI main_api.py (:8000)]
+    ├── /api/v1/upload                   ← 이미지 업로드
+    ├── /api/v1/pipeline/run             ← 전체 파이프라인 백그라운드 실행
+    ├── /api/v1/steps/step0~5            ← 단독 Step 실행
+    ├── /api/v1/tasks/{task_id}          ← 작업 상태 폴링
+    └── /api/v1/cache/{type}/{filename}  ← 파일 서빙 (이미지/오디오/영상)
+    ↓ 직접 import / subprocess
+[step0~5 파이프라인 모듈들]
+```
+
+### 작업 상태 관리 (`task_status_dict`)
+
+- **인메모리 dict**: `dict[str, TaskStatus]`
+- **Task ID 생성**: UUID로 자동 할당 (이미지 업로드 시)
+- **상태 필드**:
+  - `task_id` (str)
+  - `current_step` (int, 0~5)
+  - `status` (pending / running / completed / failed)
+  - `status_message` (str)
+  - `error_log` (dict[str, str])
+  - `created_at`, `updated_at` (datetime)
+  - 각 Step 결과 경로 (ocr_text, nlp_cache_path, image_paths, audio_paths, subtitle_path, video_path)
+
+### 비동기 처리
+
+**전략**: `ThreadPoolExecutor(max_workers=2)` + `asyncio.run_in_executor()`
+- Step 0~5는 동기 함수이므로 스레드풀에서 실행
+- 최대 2개 동시 실행 (GPU 충돌 방지)
+- FastAPI `BackgroundTasks`로 엔드포인트 응답 후 백그라운드 실행
+
+**Step 2 진행 상황**:
+- `generate_all_images` 대신 씬별 루프로 직접 호출
+- 30초마다 `task_status_dict[task_id].status_message` 업데이트
+- Streamlit에서 2초 간격으로 폴링해서 실시간 진행도 표시
+
+**Windows asyncio 이슈 (Step 3)**:
+- Step 3(`edge-tts`)는 내부적으로 `asyncio.run()` 사용
+- 별도 스레드 내에서 `asyncio.new_event_loop()` 생성 후 실행
+
+### FastAPI 파일 구조
+
+```
+main_api.py              ← FastAPI 앱 진입점 + 라우터 등록
+api/
+├── __init__.py
+├── models.py            ← Pydantic 모델 (TaskStatus, UploadResponse 등)
+├── pipeline_runner.py   ← task_status_dict + 비동기 Step 실행 함수
+└── routes/
+    ├── __init__.py
+    ├── upload.py        ← POST /api/v1/upload (파일 업로드)
+    ├── tasks.py         ← GET/DELETE /api/v1/tasks (상태 조회/삭제)
+    ├── steps.py         ← POST /api/v1/steps/step0~5, /pipeline/run
+    └── files.py         ← GET /api/v1/cache/{type}/{filename} (파일 서빙)
+```
+
+### Streamlit 페이지 구성
+
+**사이드바:**
+- API 서버 주소 입력 (기본값: http://localhost:8000/api/v1)
+- 이미지 업로드 → Task ID 발급
+- [전체 파이프라인 실행] 버튼 (백그라운드 실행)
+- 진행률 표시 (st.progress)
+- 작업 정보 (Task ID, 상태, 현재 Step)
+
+**메인 영역 (6개 탭):**
+1. **Step 0: OCR** — 원본 이미지 + OCR 텍스트 (편집 가능)
+2. **Step 1: NLP** — 씬별 카드 (원문/현대어/나레이션/감정/배경/이미지프롬프트)
+3. **Step 2: 이미지** — 씬별 생성 이미지 그리드 (st.columns)
+4. **Step 3: 오디오** — 씬별 st.audio 플레이어
+5. **Step 4: 자막** — SRT 파일 미리보기 (st.code)
+6. **Step 5: 영상** — st.video 플레이어 + 다운로드 버튼
+
+**상태 폴링:**
+```python
+while True:
+  status = requests.get(f"{API_BASE}/tasks/{task_id}").json()
+  # UI 업데이트
+  if status["status"] in ("completed", "failed"):
+    break
+  time.sleep(2)
+```
+
+### 주의사항 & 이슈 해결
+
+#### 1. 작업 디렉토리 고정
+```python
+# main_api.py 상단
+os.chdir(Path(__file__).parent)
+```
+파이프라인 모듈이 `cache/stepN` 상대 경로를 사용하므로 필수.
+
+#### 2. 단독 Step 재실행 시 캐시 무효화
+`StepRequest`에 `invalidate_downstream: bool` 파라미터 추가.
+Step 1 재실행 시 Step 2~ 캐시 자동 삭제 옵션.
+
+#### 3. 대용량 파일 서빙 (MP4)
+`st.video(url)` — FastAPI의 파일 서빙 URL을 직접 전달하여 브라우저가 스트리밍.
+바이트로 읽지 않으므로 메모리 효율적.
+
+#### 4. Path traversal 방지
+```python
+if '..' in filename or filename.startswith('/'):
+  raise HTTPException(status_code=400)
+```
+
+#### 5. CORS 설정
+로컬 개발 환경: `allow_origins=["*"]` (모든 오리진 허용)
+프로덕션: `allow_origins=["http://localhost:8501"]` (Streamlit만)
+
+### CLI 사용법
+
+```bash
+# 터미널 1: FastAPI 서버 시작
+uv run uvicorn main_api:app --host 0.0.0.0 --port 8000 --reload
+
+# 터미널 2: Streamlit UI 시작
+uv run streamlit run app_ui.py --server.port 8501
+```
+
+브라우저: `http://localhost:8501`에서 접근
+
+### 테스트 체크리스트
+
+- [ ] FastAPI 서버 시작 후 `http://localhost:8000/api/v1/health` 응답 확인
+- [ ] FastAPI Swagger UI (`http://localhost:8000/docs`) 접근 확인
+- [ ] Streamlit에서 이미지 업로드 → task_id 발급 확인
+- [ ] [전체 파이프라인 실행] 클릭 → 백그라운드 실행 확인
+- [ ] 상태 폴링 → 진행률 표시 업데이트 확인
+- [ ] 각 Step 완료 후 탭에 결과 표시 확인
+- [ ] Step 2 진행 중 "이미지 생성 중: 1/7씬" 같은 메시지 실시간 표시 확인
+- [ ] 파일 서빙 (이미지/오디오/영상) 정상 작동 확인
+- [ ] 단독 Step 재실행 버튼 클릭 → 해당 Step만 실행 확인

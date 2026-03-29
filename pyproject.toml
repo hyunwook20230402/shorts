@@ -7,16 +7,20 @@ requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.86.0",
     "edge-tts>=7.0.2",
+    "fastapi>=0.115.0",
     "jupyter>=1.1.1",
     "moviepy>=1.0.3,<2.0",
     "mutagen>=1.47.0",
     "pillow>=9.0.0,<10.0.0",
     "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.20",
     "requests>=2.33.0",
+    "streamlit>=1.44.0",
     "tenacity>=9.1.4",
     "torch>=2.11.0",
     "torchaudio>=2.11.0",
     "torchvision>=0.26.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [tool.uv.sources]
@@ -28,6 +32,11 @@ torchaudio = { index = "pytorch" }
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu126"  # cu126 = CUDA 12.6
 explicit = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.8",
+]
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6.0"]

@@ -110,7 +110,21 @@
       "Bash(head -15 cache/step3/*_subtitles.srt)",
       "Bash(grep -c \"^[0-9]\" cache/step3/*_subtitles.srt)",
       "Bash(grep \"^[0-9]$\" cache/step3/*_subtitles.srt)",
-      "Bash(head -15 cache/step4/*_subtitles.srt)"
+      "Bash(head -15 cache/step4/*_subtitles.srt)",
+      "Bash(where ffmpeg:*)",
+      "Bash(where ffprobe:*)",
+      "Bash(where magick:*)",
+      "Bash(C:/ffmpeg/bin/ffmpeg.exe -version)",
+      "Bash(tee step5_build.log)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:nokey=0 C:/Users/user/workspaces/shorts/cache/step5/ee4b43bf_shorts.mp4)",
+      "Bash(find cache/step5 -type f -name *.mp4)",
+      "Bash(cp cache/step5/ee4b43bf_shorts.mp4 ~/Desktop/shorts.mp4)",
+      "Read(//c/Users/user/Desktop/**)",
+      "Bash(for dir:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/user/workspaces/shorts/**)",
+      "Bash(done)",
+      "Bash(grep -n \"^def \\\\|^if __name__\" /c/Users/user/workspaces/shorts/step*.py)"
     ]
   }
 }
