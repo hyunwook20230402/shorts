@@ -287,9 +287,8 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
 
     # Step 5: 영상
     if start_step <= 5 <= end_step:
-      video_path = await run_step5(task_id, image_paths, audio_paths, subtitle_path)
-    else:
-      video_path = task.video_path
+      await run_step5(task_id, image_paths, audio_paths, subtitle_path)
+    # else: task.video_path는 이미 설정됨
 
     # 완료
     task.current_step = 5

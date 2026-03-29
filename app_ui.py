@@ -32,9 +32,8 @@ if 'step_running' not in st.session_state:
 
 
 # 헬퍼 함수
-@st.cache_data(ttl=2)
 def fetch_task_status(task_id: str) -> dict | None:
-  """작업 상태 조회 (2초 캐시)"""
+  """작업 상태 조회 (캐시 없음, 매 호출마다 실시간 조회)"""
   try:
     resp = requests.get(f'{st.session_state.api_base}/tasks/{task_id}', timeout=5)
     if resp.status_code == 200:
@@ -83,7 +82,6 @@ def run_pipeline_async(task_id: str) -> bool:
 def poll_until_complete(task_id: str, placeholder) -> dict | None:
   """작업 완료까지 폴링"""
   start_time = time.time()
-  last_step = -1
 
   while True:
     status = fetch_task_status(task_id)
@@ -231,19 +229,21 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step0':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step0', '')}")
+        @st.fragment(run_every=2)
+        def polling_step0():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step0', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step0()
 
     # ========================================================================
     # Tab 1: NLP
@@ -295,19 +295,21 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step1':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step1', '')}")
+        @st.fragment(run_every=2)
+        def polling_step1():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step1', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step1()
 
     # ========================================================================
     # Tab 2: 이미지
@@ -338,19 +340,21 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step2':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step2', '')}")
+        @st.fragment(run_every=2)
+        def polling_step2():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step2', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step2()
 
     # ========================================================================
     # Tab 3: 오디오
@@ -379,19 +383,21 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step3':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step3', '')}")
+        @st.fragment(run_every=2)
+        def polling_step3():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step3', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step3()
 
     # ========================================================================
     # Tab 4: 자막
@@ -419,19 +425,21 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step4':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step4', '')}")
+        @st.fragment(run_every=2)
+        def polling_step4():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step4', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step4()
 
     # ========================================================================
     # Tab 5: 영상
@@ -468,16 +476,18 @@ else:
           st.rerun()
 
       if st.session_state.step_running == 'step5':
-        status = fetch_task_status(st.session_state.task_id)
-        if status:
-          st.info(f'⏳ {status["status_message"]}')
-          if status['error_log']:
-            st.error(f"❌ 오류: {status['error_log'].get('step5', '')}")
+        @st.fragment(run_every=2)
+        def polling_step5():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log']:
+              st.error(f"❌ 오류: {status['error_log'].get('step5', '')}")
 
-          if status['status'] == 'completed':
-            st.session_state.step_running = None
-            st.rerun()
-          elif status['status'] == 'failed':
-            st.session_state.step_running = None
-          else:
-            st.rerun()
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun()
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+
+        polling_step5()
