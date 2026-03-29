@@ -32,8 +32,9 @@ if 'step_running' not in st.session_state:
 
 
 # 헬퍼 함수
+@st.cache_data(ttl=2)
 def fetch_task_status(task_id: str) -> dict | None:
-  """작업 상태 조회"""
+  """작업 상태 조회 (2초 캐시)"""
   try:
     resp = requests.get(f'{st.session_state.api_base}/tasks/{task_id}', timeout=5)
     if resp.status_code == 200:
@@ -242,7 +243,6 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -307,7 +307,6 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -351,7 +350,6 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -393,7 +391,6 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -434,7 +431,6 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -484,5 +480,4 @@ else:
           elif status['status'] == 'failed':
             st.session_state.step_running = None
           else:
-            time.sleep(2)
             st.rerun()
