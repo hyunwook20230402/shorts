@@ -43,15 +43,23 @@ def fetch_task_status(task_id: str) -> dict | None:
 def upload_image(file) -> str | None:
   """이미지 업로드"""
   try:
+    # Streamlit UploadedFile에서 바이너리 읽기
+    file_content = file.read()
+    files = {'file': (file.name, file_content, 'image/jpeg')}
+
     resp = requests.post(
       f'{st.session_state.api_base}/upload',
-      files={'file': (file.name, file, 'image/jpeg')}
+      files=files,
+      timeout=30
     )
     if resp.status_code == 200:
       data = resp.json()
       return data['task_id']
+    else:
+      st.error(f'업로드 실패: {resp.status_code} - {resp.text}')
   except Exception as e:
     st.error(f'업로드 오류: {e}')
+    logger.error(f'업로드 오류 상세: {e}', exc_info=True)
   return None
 
 
