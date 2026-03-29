@@ -1,10 +1,9 @@
 import asyncio
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
-from api.models import StepRequest, PipelineRunRequest, TaskStatus
+from api.models import StepRequest, PipelineRunRequest
 from api.pipeline_runner import (
   task_status_dict,
   run_pipeline_async,
@@ -83,7 +82,7 @@ async def run_step0_endpoint(request: StepRequest, background_tasks: BackgroundT
 
   async def _run():
     try:
-      await run_step0(request.task_id, image_path)
+      await run_step0(request.task_id, image_path, request.use_cache)
     except Exception as e:
       logger.error(f'Step 0 오류: {e}')
 
@@ -112,7 +111,7 @@ async def run_step1_endpoint(request: StepRequest, background_tasks: BackgroundT
 
   async def _run():
     try:
-      await run_step1(request.task_id, task.ocr_text)
+      await run_step1(request.task_id, task.ocr_text, request.use_cache)
     except Exception as e:
       logger.error(f'Step 1 오류: {e}')
 
@@ -143,8 +142,8 @@ async def run_step2_endpoint(request: StepRequest, background_tasks: BackgroundT
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-        image_prompts = [s.get('image_prompt', '') for s in nlp_data.get('scenes', [])]
-      await run_step2_with_progress(request.task_id, image_prompts)
+        image_prompts = nlp_data.get('image_prompts', [])
+      await run_step2_with_progress(request.task_id, image_prompts, request.use_cache)
     except Exception as e:
       logger.error(f'Step 2 오류: {e}')
 
@@ -173,8 +172,8 @@ async def run_step3_endpoint(request: StepRequest, background_tasks: BackgroundT
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
-        script_data = json.load(f).get('scenes', [])
-      await run_step3(request.task_id, script_data)
+        script_data = json.load(f).get('modern_script_data', [])
+      await run_step3(request.task_id, script_data, request.use_cache)
     except Exception as e:
       logger.error(f'Step 3 오류: {e}')
 
@@ -193,6 +192,9 @@ async def run_step4_endpoint(request: StepRequest, background_tasks: BackgroundT
   if not task.audio_paths:
     raise HTTPException(status_code=400, detail='오디오가 없습니다. Step 3을 먼저 실행하세요')
 
+  if not task.nlp_cache_path:
+    raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
+
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
     task.subtitle_path = None
@@ -202,7 +204,7 @@ async def run_step4_endpoint(request: StepRequest, background_tasks: BackgroundT
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
-        script_data = json.load(f).get('scenes', [])
+        script_data = json.load(f).get('modern_script_data', [])
       await run_step4(request.task_id, task.audio_paths, script_data)
     except Exception as e:
       logger.error(f'Step 4 오류: {e}')

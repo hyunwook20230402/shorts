@@ -213,7 +213,7 @@ else:
         with st.spinner('Step 0 실행 중...'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step0',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 0 재실행 시작됨')
@@ -230,7 +230,7 @@ else:
           with open(status['nlp_cache_path'], 'r', encoding='utf-8') as f:
             nlp_data = json.load(f)
 
-          scenes = nlp_data.get('scenes', [])
+          scenes = nlp_data.get('modern_script_data', [])
           st.write(f'**총 {len(scenes)}개 씬**')
 
           for idx, scene in enumerate(scenes):
@@ -263,7 +263,7 @@ else:
         with st.spinner('Step 1 실행 중...'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step1',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 1 재실행 시작됨')
@@ -291,7 +291,7 @@ else:
         with st.spinner('Step 2 실행 중... (1~30분 소요)'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step2',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 2 재실행 시작됨')
@@ -317,7 +317,7 @@ else:
         with st.spinner('Step 3 실행 중...'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step3',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 3 재실행 시작됨')
@@ -342,7 +342,7 @@ else:
         with st.spinner('Step 4 실행 중...'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step4',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 4 재실행 시작됨')
@@ -376,7 +376,7 @@ else:
         with st.spinner('Step 5 실행 중... (인코딩, 1~2분 소요)'):
           resp = requests.post(
             f'{st.session_state.api_base}/steps/step5',
-            json={'task_id': st.session_state.task_id, 'use_cache': False}
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
           )
           if resp.status_code == 200:
             st.info('Step 5 재실행 시작됨')

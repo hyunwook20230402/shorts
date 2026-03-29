@@ -124,7 +124,13 @@
       "Bash(do echo:*)",
       "Read(//c/Users/user/workspaces/shorts/**)",
       "Bash(done)",
-      "Bash(grep -n \"^def \\\\|^if __name__\" /c/Users/user/workspaces/shorts/step*.py)"
+      "Bash(grep -n \"^def \\\\|^if __name__\" /c/Users/user/workspaces/shorts/step*.py)",
+      "WebFetch(domain:127.0.0.1)",
+      "Bash(curl -s http://127.0.0.1:8000/api/v1/health)",
+      "Bash(curl -s http://127.0.0.1:8001/api/v1/health)",
+      "Bash(curl:*)",
+      "Bash(grep -E \"\\\\.py$|^d\")",
+      "Bash(xargs -r kill -9)"
     ]
   }
 }

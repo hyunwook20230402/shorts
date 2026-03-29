@@ -3,9 +3,8 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File
-from api.models import TaskStatus, StepStatusEnum, UploadResponse
+from api.models import UploadResponse
 from api.pipeline_runner import task_status_dict, _create_task_status
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

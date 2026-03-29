@@ -8,7 +8,6 @@ from typing import Callable
 from api.models import TaskStatus, StepStatusEnum
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
-from step2_vision import generate_all_images
 from step3_audio import generate_all_audio
 from step4_subtitle import generate_subtitles
 from step5_video import compose_video
@@ -41,7 +40,7 @@ def _create_task_status(task_id: str) -> TaskStatus:
   )
 
 
-async def run_step0(task_id: str, image_path: str) -> str:
+async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> str:
   """Step 0: OCR"""
   task = task_status_dict[task_id]
   task.current_step = 0
@@ -50,17 +49,22 @@ async def run_step0(task_id: str, image_path: str) -> str:
   task.updated_at = datetime.now()
 
   try:
-    result = await run_in_thread(extract_text_from_image, image_path, use_cache=True)
+    result = await run_in_thread(extract_text_from_image, image_path, use_cache=use_cache)
     task.ocr_text = result
+    task.status = StepStatusEnum.completed
+    task.status_message = 'OCR 처리 완료'
+    task.updated_at = datetime.now()
     return result
   except Exception as e:
     logger.error(f'Step 0 오류: {e}')
     task.error_log['step0'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 0 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
-async def run_step1(task_id: str, ocr_text: str) -> tuple[list[dict], list[str]]:
+async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tuple[list[dict], list[str]]:
   """Step 1: NLP"""
   task = task_status_dict[task_id]
   task.current_step = 1
@@ -69,23 +73,27 @@ async def run_step1(task_id: str, ocr_text: str) -> tuple[list[dict], list[str]]
   task.updated_at = datetime.now()
 
   try:
-    script_data, image_prompts = await run_in_thread(process_nlp, ocr_text)
+    script_data, image_prompts = await run_in_thread(process_nlp, ocr_text, task_id, use_cache)
 
-    # NLP 결과 캐시 경로 저장
-    from step1_nlp import CACHE_DIR
-    hash_key = __import__('hashlib').md5(ocr_text.encode()).hexdigest()[:16]
-    nlp_path = CACHE_DIR / f'{hash_key}_nlp.json'
-    task.nlp_cache_path = str(nlp_path)
+    # NLP 결과 캐시 경로 저장 (step1_nlp의 get_cache_path 함수 사용)
+    from step1_nlp import get_cache_path
+    nlp_path = get_cache_path(ocr_text)
+    task.nlp_cache_path = str(nlp_path).replace('\\', '/')
 
+    task.status = StepStatusEnum.completed
+    task.status_message = 'NLP 처리 완료'
+    task.updated_at = datetime.now()
     return script_data, image_prompts
   except Exception as e:
     logger.error(f'Step 1 오류: {e}')
     task.error_log['step1'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 1 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
-async def run_step2_with_progress(task_id: str, image_prompts: list[str]) -> list[str]:
+async def run_step2_with_progress(task_id: str, image_prompts: list[str], use_cache: bool = True) -> list[str]:
   """Step 2: 이미지 생성 (진행 상황 실시간 업데이트)"""
   task = task_status_dict[task_id]
   task.current_step = 2
@@ -93,7 +101,7 @@ async def run_step2_with_progress(task_id: str, image_prompts: list[str]) -> lis
   task.updated_at = datetime.now()
 
   try:
-    from step2_vision import CACHE_DIR, generate_image
+    from step2_vision import generate_image
 
     image_paths = []
     for i, prompt in enumerate(image_prompts):
@@ -101,19 +109,24 @@ async def run_step2_with_progress(task_id: str, image_prompts: list[str]) -> lis
       task.updated_at = datetime.now()
       logger.info(task.status_message)
 
-      path = await run_in_thread(generate_image, prompt, i, use_cache=True)
+      path = await run_in_thread(generate_image, prompt, i, use_cache=use_cache)
       image_paths.append(path)
 
     task.image_paths = image_paths
+    task.status = StepStatusEnum.completed
+    task.status_message = f'이미지 생성 완료 ({len(image_paths)}개)'
+    task.updated_at = datetime.now()
     return image_paths
   except Exception as e:
     logger.error(f'Step 2 오류: {e}')
     task.error_log['step2'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 2 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
-async def run_step3(task_id: str, script_data: list[dict]) -> list[str]:
+async def run_step3(task_id: str, script_data: list[dict], use_cache: bool = True) -> list[str]:
   """Step 3: 오디오 생성"""
   task = task_status_dict[task_id]
   task.current_step = 3
@@ -127,17 +140,22 @@ async def run_step3(task_id: str, script_data: list[dict]) -> list[str]:
       loop = asyncio.new_event_loop()
       asyncio.set_event_loop(loop)
       try:
-        return generate_all_audio(script_data, use_cache=True)
+        return generate_all_audio(script_data, use_cache=use_cache)
       finally:
         loop.close()
 
     audio_paths = await run_in_thread(_run_step3)
     task.audio_paths = audio_paths
+    task.status = StepStatusEnum.completed
+    task.status_message = '오디오 생성 완료'
+    task.updated_at = datetime.now()
     return audio_paths
   except Exception as e:
     logger.error(f'Step 3 오류: {e}')
     task.error_log['step3'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 3 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
@@ -164,11 +182,16 @@ async def run_step4(task_id: str, audio_paths: list[str], script_data: list[dict
       str(output_path)
     )
     task.subtitle_path = subtitle_path
+    task.status = StepStatusEnum.completed
+    task.status_message = '자막 생성 완료'
+    task.updated_at = datetime.now()
     return subtitle_path
   except Exception as e:
     logger.error(f'Step 4 오류: {e}')
     task.error_log['step4'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 4 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
@@ -209,11 +232,16 @@ async def run_step5(task_id: str, image_paths: list[str], audio_paths: list[str]
       str(output_path)
     )
     task.video_path = video_path
+    task.status = StepStatusEnum.completed
+    task.status_message = '영상 합성 완료'
+    task.updated_at = datetime.now()
     return video_path
   except Exception as e:
     logger.error(f'Step 5 오류: {e}')
     task.error_log['step5'] = str(e)
     task.status = StepStatusEnum.failed
+    task.status_message = f'Step 5 오류: {str(e)}'
+    task.updated_at = datetime.now()
     raise
 
 
@@ -236,8 +264,8 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-        script_data = nlp_data.get('scenes', [])
-        image_prompts = [s.get('image_prompt', '') for s in script_data]
+        script_data = nlp_data.get('modern_script_data', [])
+        image_prompts = nlp_data.get('image_prompts', [])
 
     # Step 2: 이미지
     if start_step <= 2 <= end_step:
