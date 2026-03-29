@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZIPMiddleware
 
 from api.routes import upload, tasks, steps, files
 
@@ -25,7 +24,6 @@ app = FastAPI(
 )
 
 # 미들웨어 설정
-app.add_middleware(GZIPMiddleware, minimum_size=1000)
 app.add_middleware(
   CORSMiddleware,
   allow_origins=['*'],
