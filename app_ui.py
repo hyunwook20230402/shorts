@@ -27,6 +27,9 @@ if 'task_id' not in st.session_state:
 if 'pipeline_running' not in st.session_state:
   st.session_state.pipeline_running = False
 
+if 'step_running' not in st.session_state:
+  st.session_state.step_running = None
+
 
 # 헬퍼 함수
 def fetch_task_status(task_id: str) -> dict | None:
@@ -203,7 +206,7 @@ else:
         if status['uploaded_image_path']:
           try:
             img = Image.open(status['uploaded_image_path'])
-            st.image(img, use_column_width=True)
+            st.image(img, use_container_width=True)
           except Exception as e:
             st.error(f'이미지 로드 오류: {e}')
 
@@ -217,14 +220,29 @@ else:
         else:
           st.info('아직 실행되지 않았습니다')
 
-      if st.button('🔄 Step 0 재실행', key='step0_rerun'):
-        with st.spinner('Step 0 실행 중...'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step0',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 0 재실행 시작됨')
+      if st.button('▶️ Step 0 실행', key='step0_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step0',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step0'
+          st.rerun()
+
+      if st.session_state.step_running == 'step0':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step0', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
             st.rerun()
 
     # ========================================================================
@@ -267,14 +285,30 @@ else:
       else:
         st.info('Step 1을 실행하면 결과가 표시됩니다')
 
-      if st.button('🔄 Step 1 재실행', key='step1_rerun'):
-        with st.spinner('Step 1 실행 중...'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step1',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 1 재실행 시작됨')
+      if st.button('▶️ Step 1 실행', key='step1_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step1',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step1'
+          st.rerun()
+
+      if st.session_state.step_running == 'step1':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step1', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
+            st.rerun()
 
     # ========================================================================
     # Tab 2: 이미지
@@ -288,21 +322,37 @@ else:
           with cols[idx % 3]:
             try:
               img = Image.open(img_path)
-              st.image(img, use_column_width=True)
+              st.image(img, use_container_width=True)
               st.caption(f"씬 {idx + 1}")
             except Exception as e:
               st.error(f'이미지 로드 오류: {e}')
       else:
         st.info('Step 2를 실행하면 결과가 표시됩니다')
 
-      if st.button('🔄 Step 2 재실행', key='step2_rerun'):
-        with st.spinner('Step 2 실행 중... (1~30분 소요)'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step2',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 2 재실행 시작됨')
+      if st.button('▶️ Step 2 실행', key='step2_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step2',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step2'
+          st.rerun()
+
+      if st.session_state.step_running == 'step2':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step2', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
+            st.rerun()
 
     # ========================================================================
     # Tab 3: 오디오
@@ -321,14 +371,30 @@ else:
       else:
         st.info('Step 3을 실행하면 결과가 표시됩니다')
 
-      if st.button('🔄 Step 3 재실행', key='step3_rerun'):
-        with st.spinner('Step 3 실행 중...'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step3',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 3 재실행 시작됨')
+      if st.button('▶️ Step 3 실행', key='step3_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step3',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step3'
+          st.rerun()
+
+      if st.session_state.step_running == 'step3':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step3', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
+            st.rerun()
 
     # ========================================================================
     # Tab 4: 자막
@@ -346,14 +412,30 @@ else:
       else:
         st.info('Step 4를 실행하면 결과가 표시됩니다')
 
-      if st.button('🔄 Step 4 재실행', key='step4_rerun'):
-        with st.spinner('Step 4 실행 중...'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step4',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 4 재실행 시작됨')
+      if st.button('▶️ Step 4 실행', key='step4_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step4',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step4'
+          st.rerun()
+
+      if st.session_state.step_running == 'step4':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step4', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
+            st.rerun()
 
     # ========================================================================
     # Tab 5: 영상
@@ -380,11 +462,27 @@ else:
       else:
         st.info('Step 5를 실행하면 결과가 표시됩니다')
 
-      if st.button('🔄 Step 5 재실행', key='step5_rerun'):
-        with st.spinner('Step 5 실행 중... (인코딩, 1~2분 소요)'):
-          resp = requests.post(
-            f'{st.session_state.api_base}/steps/step5',
-            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-          )
-          if resp.status_code == 200:
-            st.info('Step 5 재실행 시작됨')
+      if st.button('▶️ Step 5 실행', key='step5_run'):
+        resp = requests.post(
+          f'{st.session_state.api_base}/steps/step5',
+          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+        )
+        if resp.status_code == 200:
+          st.session_state.step_running = 'step5'
+          st.rerun()
+
+      if st.session_state.step_running == 'step5':
+        status = fetch_task_status(st.session_state.task_id)
+        if status:
+          st.info(f'⏳ {status["status_message"]}')
+          if status['error_log']:
+            st.error(f"❌ 오류: {status['error_log'].get('step5', '')}")
+
+          if status['status'] == 'completed':
+            st.session_state.step_running = None
+            st.rerun()
+          elif status['status'] == 'failed':
+            st.session_state.step_running = None
+          else:
+            time.sleep(2)
+            st.rerun()

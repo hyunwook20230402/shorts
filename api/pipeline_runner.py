@@ -23,7 +23,7 @@ _executor = ThreadPoolExecutor(max_workers=2)
 
 async def run_in_thread(func: Callable, *args, **kwargs):
   """블로킹 함수를 스레드풀에서 실행"""
-  loop = asyncio.get_event_loop()
+  loop = asyncio.get_running_loop()
   return await loop.run_in_executor(_executor, lambda: func(*args, **kwargs))
 
 
