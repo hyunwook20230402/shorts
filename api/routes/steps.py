@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import requests
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -138,6 +140,20 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
 
   if not task.nlp_cache_path:
     raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
+
+  # ComfyUI 헬스체크
+  comfyui_host = os.getenv('COMFYUI_HOST', '127.0.0.1')
+  comfyui_port = os.getenv('COMFYUI_PORT', '8188')
+  comfyui_base_url = f'http://{comfyui_host}:{comfyui_port}'
+
+  try:
+    requests.get(f'{comfyui_base_url}/system_stats', timeout=3)
+  except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+    error_msg = f'ComfyUI 서버가 실행되지 않았습니다. {comfyui_host}:{comfyui_port}에 연결할 수 없습니다. ComfyUI 디렉토리에서 "python main.py"를 실행한 후 다시 시도하세요.'
+    task.status = StepStatusEnum.failed
+    task.status_message = error_msg
+    task.error_log['step2'] = error_msg
+    raise HTTPException(status_code=503, detail=error_msg)
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:

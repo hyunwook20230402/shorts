@@ -338,6 +338,8 @@ else:
               st.caption(f"씬 {idx + 1}")
             except Exception as e:
               st.error(f'이미지 로드 오류: {e}')
+      elif status.get('error_log', {}).get('step2'):
+        st.error(f"❌ Step 2 오류: {status['error_log']['step2']}")
       else:
         st.info('Step 2를 실행하면 결과가 표시됩니다')
 
@@ -349,6 +351,8 @@ else:
         if resp.status_code == 200:
           st.session_state.step_running = 'step2'
           st.rerun()
+        else:
+          st.error(f'Step 2 실행 실패: {resp.text}')
 
       if st.session_state.step_running == 'step2':
         @st.fragment(run_every=2)
@@ -364,6 +368,7 @@ else:
               st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
+              st.rerun(scope="app")
 
         polling_step2()
 
@@ -381,6 +386,8 @@ else:
               st.audio(f.read(), format='audio/mp3')
           except Exception as e:
             st.error(f'오디오 로드 오류: {e}')
+      elif status.get('error_log', {}).get('step3'):
+        st.error(f"❌ Step 3 오류: {status['error_log']['step3']}")
       else:
         st.info('Step 3을 실행하면 결과가 표시됩니다')
 
@@ -407,6 +414,7 @@ else:
               st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
+              st.rerun(scope="app")
 
         polling_step3()
 
@@ -423,6 +431,8 @@ else:
           st.code(srt_content, language='srt')
         except Exception as e:
           st.error(f'자막 로드 오류: {e}')
+      elif status.get('error_log', {}).get('step4'):
+        st.error(f"❌ Step 4 오류: {status['error_log']['step4']}")
       else:
         st.info('Step 4를 실행하면 결과가 표시됩니다')
 
@@ -449,6 +459,7 @@ else:
               st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
+              st.rerun(scope="app")
 
         polling_step4()
 
@@ -474,6 +485,8 @@ else:
             )
         except Exception as e:
           st.error(f'영상 로드 오류: {e}')
+      elif status.get('error_log', {}).get('step5'):
+        st.error(f"❌ Step 5 오류: {status['error_log']['step5']}")
       else:
         st.info('Step 5를 실행하면 결과가 표시됩니다')
 
@@ -500,5 +513,6 @@ else:
               st.rerun(scope="app")
             elif status['status'] == 'failed':
               st.session_state.step_running = None
+              st.rerun(scope="app")
 
         polling_step5()
