@@ -76,6 +76,7 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     task.audio_paths = []
     task.tts_alignment_paths = []
     task.frame_schedule_path = None
+    task.still_image_paths = []
     task.video_clip_paths = []
     task.video_path = None
 
@@ -112,6 +113,7 @@ async def run_step1_endpoint(request: StepRequest) -> dict:
     task.audio_paths = []
     task.tts_alignment_paths = []
     task.frame_schedule_path = None
+    task.still_image_paths = []
     task.video_clip_paths = []
     task.video_path = None
 
@@ -151,6 +153,7 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
   if request.invalidate_downstream:
     task.tts_alignment_paths = []
     task.frame_schedule_path = None
+    task.still_image_paths = []
     task.video_clip_paths = []
     task.video_path = None
 
@@ -187,6 +190,7 @@ async def run_step3_endpoint(request: StepRequest) -> dict:
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
     task.frame_schedule_path = None
+    task.still_image_paths = []
     task.video_clip_paths = []
     task.video_path = None
 
@@ -239,6 +243,7 @@ async def run_step4_endpoint(request: StepRequest) -> dict:
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
+    task.still_image_paths = []
     task.video_clip_paths = []
     task.video_path = None
 

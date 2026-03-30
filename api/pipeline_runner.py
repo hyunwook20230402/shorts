@@ -236,21 +236,23 @@ async def run_step3_schedule(
 
 
 async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: bool = True) -> list[str]:
-  """Step 4: AnimateDiff 비디오 클립 생성 → video_clip_paths"""
+  """Step 4: I2V 영상 클립 생성 (Step 4-A: 정지 이미지 + Step 4-B: Ken Burns) → video_clip_paths"""
   task = task_status_dict[task_id]
   task.current_step = 4
   task.status = StepStatusEnum.running
-  task.status_message = 'AnimateDiff 영상 클립 생성 중...'
+  task.status_message = 'Step 4-A: ComfyUI 정지 이미지 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
-    video_clip_paths = generate_all_clips(frame_schedule_path, use_cache=use_cache)
+    # generate_all_clips()는 이제 (clip_paths, still_paths) 튜플 반환
+    video_clip_paths, still_image_paths = generate_all_clips(frame_schedule_path, use_cache=use_cache)
 
     task = task_status_dict[task_id]
+    task.still_image_paths = still_image_paths
     task.video_clip_paths = video_clip_paths
     task.status = StepStatusEnum.completed
-    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개)'
+    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개, I2V Ken Burns 모드)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
     return video_clip_paths

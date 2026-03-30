@@ -22,7 +22,11 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 ANIMATEDIFF_FPS = int(os.getenv('ANIMATEDIFF_FPS', '10'))
 CACHE_DIR = Path('cache/step3')
 COMMON_KEYWORDS = 'ink painting, traditional korean paper texture, guofeng style'
-NEGATIVE_PROMPT = 'worst quality, low quality, blurry, western style, anime, disfigured'
+NEGATIVE_PROMPT = (
+    'worst quality, low quality, blurry, western style, anime, disfigured, '
+    'text, signature, watermark, writing, calligraphy, letters, chinese characters, '
+    'inscription, seal, stamp, characters, glyphs'
+)
 
 
 def get_cache_path(script_data_hash: str) -> Path:

@@ -157,7 +157,8 @@
       "Bash(rm -rf /c/Users/user/workspaces/shorts/cache/step4/*)",
       "Bash(rm -rf /c/Users/user/workspaces/shorts/cache/step5/*)",
       "Bash(ffprobe -v error -show_format -show_streams /c/Users/user/workspaces/shorts/cache/step5/*.mp4)",
-      "Bash(du -h /c/Users/user/workspaces/shorts/cache/step5/*.mp4)"
+      "Bash(du -h /c/Users/user/workspaces/shorts/cache/step5/*.mp4)",
+      "Bash(grep:*)"
     ]
   }
 }

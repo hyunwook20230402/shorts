@@ -29,7 +29,8 @@ class TaskStatus(BaseModel):
   audio_paths: list[str] = []  # Step 2: ElevenLabs MP3 경로
   tts_alignment_paths: list[str] = []  # Step 2: alignment JSON 경로 (신규)
   frame_schedule_path: str | None = None  # Step 3: BatchPromptSchedule JSON 경로 (신규)
-  video_clip_paths: list[str] = []  # Step 4: AnimateDiff MP4 클립 경로 (신규)
+  still_image_paths: list[str] = []  # Step 4-A: ComfyUI 정지 이미지 PNG 경로 (신규 I2V)
+  video_clip_paths: list[str] = []  # Step 4-B: Ken Burns MP4 클립 경로 (신규)
   subtitle_path: str | None = None  # v2에서 미사용 (타임스탬프 기반 교체)
   video_path: str | None = None
 
