@@ -2,7 +2,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from api.models import TaskStatus
 from api.pipeline_runner import task_status_dict
 
 logger = logging.getLogger(__name__)

@@ -51,7 +51,8 @@ async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> st
 
   try:
     logger.info(f'[Step 0] OCR 함수 호출 중: {image_path}')
-    result = await run_in_thread(extract_text_from_image, image_path, use_cache=use_cache)
+    # 동기 함수를 직접 호출 (스레드풀 사용 안 함 - 이벤트 루프 데드락 방지)
+    result = extract_text_from_image(image_path, use_cache=use_cache)
     logger.info(f'[Step 0] OCR 완료: {len(result)}자')
 
     task.ocr_text = result
@@ -78,7 +79,8 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
   task.updated_at = datetime.now()
 
   try:
-    script_data, image_prompts = await run_in_thread(process_nlp, ocr_text, task_id, use_cache)
+    # 동기 함수를 직접 호출
+    script_data, image_prompts = process_nlp(ocr_text, task_id, use_cache)
 
     # NLP 결과 캐시 경로 저장 (step1_nlp의 get_cache_path 함수 사용)
     from step1_nlp import get_cache_path
@@ -114,7 +116,7 @@ async def run_step2_with_progress(task_id: str, image_prompts: list[str], use_ca
       task.updated_at = datetime.now()
       logger.info(task.status_message)
 
-      path = await run_in_thread(generate_image, prompt, i, use_cache=use_cache)
+      path = generate_image(prompt, i, use_cache=use_cache)
       image_paths.append(path)
 
     task.image_paths = image_paths
@@ -149,7 +151,7 @@ async def run_step3(task_id: str, script_data: list[dict], use_cache: bool = Tru
       finally:
         loop.close()
 
-    audio_paths = await run_in_thread(_run_step3)
+    audio_paths = _run_step3()
     task.audio_paths = audio_paths
     task.status = StepStatusEnum.completed
     task.status_message = '오디오 생성 완료'
@@ -180,8 +182,7 @@ async def run_step4(task_id: str, audio_paths: list[str], script_data: list[dict
     cache_key = hashlib.md5(''.join(audio_paths).encode()).hexdigest()[:8]
     output_path = CACHE_DIR / f'{cache_key}_subtitles.srt'
 
-    subtitle_path = await run_in_thread(
-      generate_subtitles,
+    subtitle_path = generate_subtitles(
       audio_paths,
       script_data,
       str(output_path)
@@ -228,8 +229,7 @@ async def run_step5(task_id: str, image_paths: list[str], audio_paths: list[str]
         report = json.load(f)
         scene_durations = report.get('scene_durations')
 
-    video_path = await run_in_thread(
-      compose_video,
+    video_path = compose_video(
       image_paths,
       audio_paths,
       subtitle_path,
