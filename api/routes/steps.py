@@ -85,6 +85,9 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     try:
       loop.run_until_complete(run_step0(request.task_id, image_path, request.use_cache))
       logger.info('[EXECUTOR] Step 0 완료')
+      # 현재 task 상태 확인
+      current_task = task_status_dict[request.task_id]
+      logger.info(f'[EXECUTOR] 최종 확인: task.status={current_task.status}, ocr_len={len(current_task.ocr_text) if current_task.ocr_text else 0}')
     except Exception as e:
       logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
       task.status = StepStatusEnum.failed
