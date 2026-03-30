@@ -108,8 +108,9 @@ def poll_until_complete(task_id: str, placeholder) -> dict | None:
         st.write(f'⏱️ {int(elapsed)}초')
 
     # Step별 에러 표시
-    if status['error_log']:
-      st.error(f"❌ 오류: {status['error_log']}")
+    step_key = f'step{current_step}'
+    if status['error_log'].get(step_key):
+      st.error(f"❌ 오류: {status['error_log'][step_key]}")
 
     # 완료 또는 실패
     if status['status'] in ('completed', 'failed'):
@@ -241,8 +242,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step0', '')}")
+            if status['error_log'].get('step0'):
+              st.error(f"❌ 오류: {status['error_log']['step0']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
@@ -311,8 +312,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step1', '')}")
+            if status['error_log'].get('step1'):
+              st.error(f"❌ 오류: {status['error_log']['step1']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
@@ -365,8 +366,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step2', '')}")
+            if status['error_log'].get('step2'):
+              st.error(f"❌ 오류: {status['error_log']['step2']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
@@ -411,8 +412,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step3', '')}")
+            if status['error_log'].get('step3'):
+              st.error(f"❌ 오류: {status['error_log']['step3']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
@@ -456,8 +457,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step4', '')}")
+            if status['error_log'].get('step4'):
+              st.error(f"❌ 오류: {status['error_log']['step4']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
@@ -510,8 +511,8 @@ else:
           status = fetch_task_status(st.session_state.task_id)
           if status:
             st.info(f'⏳ {status["status_message"]}')
-            if status['error_log']:
-              st.error(f"❌ 오류: {status['error_log'].get('step5', '')}")
+            if status['error_log'].get('step5'):
+              st.error(f"❌ 오류: {status['error_log']['step5']}")
 
             if status['status'] == 'completed':
               st.session_state.step_running = None
