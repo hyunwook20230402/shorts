@@ -10,3 +10,5 @@ edge-tts>=6.1.9
 notion-client>=2.2.1
 google-api-python-client>=2.125.0
 google-auth-oauthlib>=1.2.0
+elevenlabs>=1.0.0
+openai>=1.0.0

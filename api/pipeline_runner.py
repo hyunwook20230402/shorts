@@ -10,9 +10,10 @@ from typing import Callable
 from api.models import TaskStatus, StepStatusEnum
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
-from step3_audio import generate_all_audio
-from step4_subtitle import generate_subtitles
-from step5_video import compose_video
+from audio_generator import generate_all_audio as elevenlabs_generate_all
+from dynamic_scheduler import build_frame_schedules
+from clip_generator import generate_all_clips
+from video_processor import compose_final_video
 
 logger = logging.getLogger(__name__)
 
@@ -168,35 +169,26 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
     raise
 
 
-async def run_step2_with_progress(task_id: str, image_prompts: list[str], use_cache: bool = True) -> list[str]:
-  """Step 2: 이미지 생성 (진행 상황 실시간 업데이트)"""
+async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool = True) -> tuple[list[str], list[str]]:
+  """Step 2: ElevenLabs TTS → (audio_paths, alignment_paths)"""
   task = task_status_dict[task_id]
   task.current_step = 2
   task.status = StepStatusEnum.running
+  task.status_message = 'ElevenLabs 음성 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
-    from step2_vision import generate_image
-
-    image_paths = []
-    for i, prompt in enumerate(image_prompts):
-      task = task_status_dict[task_id]
-      task.status_message = f'이미지 생성 중: {i+1}/{len(image_prompts)}씬'
-      task.updated_at = datetime.now()
-      task_status_dict[task_id] = task
-      logger.info(task.status_message)
-
-      path = generate_image(prompt, i, use_cache=use_cache)
-      image_paths.append(path)
+    audio_paths, alignment_paths = elevenlabs_generate_all(script_data, use_cache=use_cache)
 
     task = task_status_dict[task_id]
-    task.image_paths = image_paths
+    task.audio_paths = audio_paths
+    task.tts_alignment_paths = alignment_paths
     task.status = StepStatusEnum.completed
-    task.status_message = f'이미지 생성 완료 ({len(image_paths)}개)'
+    task.status_message = f'음성 생성 완료 ({len(audio_paths)}개)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return image_paths
+    return audio_paths, alignment_paths
   except Exception as e:
     logger.error(f'Step 2 오류: {e}')
     task = task_status_dict[task_id]
@@ -208,34 +200,30 @@ async def run_step2_with_progress(task_id: str, image_prompts: list[str], use_ca
     raise
 
 
-async def run_step3(task_id: str, script_data: list[dict], use_cache: bool = True) -> list[str]:
-  """Step 3: 오디오 생성"""
+async def run_step3_schedule(
+  task_id: str,
+  script_data: list[dict],
+  alignment_paths: list[str],
+  use_cache: bool = True
+) -> str:
+  """Step 3: 동적 프레임 스케줄링 → frame_schedule_path"""
   task = task_status_dict[task_id]
   task.current_step = 3
   task.status = StepStatusEnum.running
-  task.status_message = 'TTS 오디오 생성 중...'
+  task.status_message = '동적 프레임 스케줄 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
-    # Windows asyncio 이슈: 별도 이벤트 루프 생성
-    def _run_step3():
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
-      try:
-        return generate_all_audio(script_data, use_cache=use_cache)
-      finally:
-        loop.close()
-
-    audio_paths = _run_step3()
+    frame_schedule_path = build_frame_schedules(script_data, alignment_paths, use_cache=use_cache)
 
     task = task_status_dict[task_id]
-    task.audio_paths = audio_paths
+    task.frame_schedule_path = frame_schedule_path
     task.status = StepStatusEnum.completed
-    task.status_message = '오디오 생성 완료'
+    task.status_message = '프레임 스케줄 생성 완료'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return audio_paths
+    return frame_schedule_path
   except Exception as e:
     logger.error(f'Step 3 오류: {e}')
     task = task_status_dict[task_id]
@@ -247,36 +235,25 @@ async def run_step3(task_id: str, script_data: list[dict], use_cache: bool = Tru
     raise
 
 
-async def run_step4(task_id: str, audio_paths: list[str], script_data: list[dict]) -> str:
-  """Step 4: 자막 생성"""
+async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: bool = True) -> list[str]:
+  """Step 4: AnimateDiff 비디오 클립 생성 → video_clip_paths"""
   task = task_status_dict[task_id]
   task.current_step = 4
   task.status = StepStatusEnum.running
-  task.status_message = '자막 생성 중...'
+  task.status_message = 'AnimateDiff 영상 클립 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
-    from step4_subtitle import CACHE_DIR
-    import hashlib
-
-    # 캐시 파일명 생성
-    cache_key = hashlib.md5(''.join(audio_paths).encode()).hexdigest()[:8]
-    output_path = CACHE_DIR / f'{cache_key}_subtitles.srt'
-
-    subtitle_path = generate_subtitles(
-      audio_paths,
-      script_data,
-      str(output_path)
-    )
+    video_clip_paths = generate_all_clips(frame_schedule_path, use_cache=use_cache)
 
     task = task_status_dict[task_id]
-    task.subtitle_path = subtitle_path
+    task.video_clip_paths = video_clip_paths
     task.status = StepStatusEnum.completed
-    task.status_message = '자막 생성 완료'
+    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return subtitle_path
+    return video_clip_paths
   except Exception as e:
     logger.error(f'Step 4 오류: {e}')
     task = task_status_dict[task_id]
@@ -288,46 +265,32 @@ async def run_step4(task_id: str, audio_paths: list[str], script_data: list[dict
     raise
 
 
-async def run_step5(task_id: str, image_paths: list[str], audio_paths: list[str],
-                    subtitle_path: str) -> str:
-  """Step 5: 영상 합성"""
+async def run_step5_merge(
+  task_id: str,
+  video_clip_paths: list[str],
+  audio_paths: list[str],
+  alignment_paths: list[str]
+) -> str:
+  """Step 5: Burn-in 자막 + 최종 병합 → final video_path"""
   task = task_status_dict[task_id]
   task.current_step = 5
   task.status = StepStatusEnum.running
-  task.status_message = '영상 합성 중 (인코딩)...'
+  task.status_message = '최종 영상 병합 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
-    from step5_video import CACHE_DIR
-    import hashlib
-
-    # 캐시 파일명 생성
-    cache_key = hashlib.md5(
-      (f'{"".join(image_paths)}|{"".join(audio_paths)}|{subtitle_path}').encode()
-    ).hexdigest()[:8]
-    output_path = CACHE_DIR / f'{cache_key}_shorts.mp4'
-
-    # audio-visual-qa 리포트 로드 (있으면)
-    qa_report_path = Path('cache/step4/audio_visual_qa_report.json')
-    scene_durations = None
-    if qa_report_path.exists():
-      with open(qa_report_path, 'r', encoding='utf-8') as f:
-        report = json.load(f)
-        scene_durations = report.get('scene_durations')
-
-    video_path = compose_video(
-      image_paths,
+    video_path = compose_final_video(
+      video_clip_paths,
       audio_paths,
-      subtitle_path,
-      scene_durations,
-      str(output_path)
+      alignment_paths,
+      use_cache=True
     )
 
     task = task_status_dict[task_id]
     task.video_path = video_path
     task.status = StepStatusEnum.completed
-    task.status_message = '영상 합성 완료'
+    task.status_message = '최종 영상 완성!'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
     return video_path
@@ -343,7 +306,7 @@ async def run_step5(task_id: str, image_paths: list[str], audio_paths: list[str]
 
 
 async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 5):
-  """Step 0~5 순차 실행"""
+  """Step 0~5 순차 실행 (v2 파이프라인)"""
   task = task_status_dict[task_id]
   image_path = task.uploaded_image_path
 
@@ -361,29 +324,29 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
       with open(task_status_dict[task_id].nlp_cache_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
         script_data = nlp_data.get('modern_script_data', [])
-        image_prompts = nlp_data.get('image_prompts', [])
 
-    # Step 2: 이미지
+    # Step 2: ElevenLabs 음성 + 타임스탬프
     if start_step <= 2 <= end_step:
-      image_paths = await run_step2_with_progress(task_id, image_prompts)
-    else:
-      image_paths = task_status_dict[task_id].image_paths
-
-    # Step 3: 오디오
-    if start_step <= 3 <= end_step:
-      audio_paths = await run_step3(task_id, script_data)
+      audio_paths, alignment_paths = await run_step2_audio(task_id, script_data)
     else:
       audio_paths = task_status_dict[task_id].audio_paths
+      alignment_paths = task_status_dict[task_id].tts_alignment_paths
 
-    # Step 4: 자막
-    if start_step <= 4 <= end_step:
-      subtitle_path = await run_step4(task_id, audio_paths, script_data)
+    # Step 3: 동적 프레임 스케줄링
+    if start_step <= 3 <= end_step:
+      frame_schedule_path = await run_step3_schedule(task_id, script_data, alignment_paths)
     else:
-      subtitle_path = task_status_dict[task_id].subtitle_path
+      frame_schedule_path = task_status_dict[task_id].frame_schedule_path
 
-    # Step 5: 영상
+    # Step 4: AnimateDiff 비디오 클립
+    if start_step <= 4 <= end_step:
+      video_clip_paths = await run_step4_clips(task_id, frame_schedule_path)
+    else:
+      video_clip_paths = task_status_dict[task_id].video_clip_paths
+
+    # Step 5: Burn-in + 최종 병합
     if start_step <= 5 <= end_step:
-      await run_step5(task_id, image_paths, audio_paths, subtitle_path)
+      await run_step5_merge(task_id, video_clip_paths, audio_paths, alignment_paths)
 
     # 완료
     task = task_status_dict[task_id]
@@ -398,6 +361,7 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
     logger.error(f'파이프라인 오류: {e}')
     task = task_status_dict[task_id]
     task.status = StepStatusEnum.failed
-    task.status_message = f'오류 발생: {str(e)}'
+    task.status_message = f'파이프라인 오류: {str(e)}'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
+    raise

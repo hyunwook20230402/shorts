@@ -12,10 +12,10 @@ from api.pipeline_runner import (
   run_pipeline_async,
   run_step0,
   run_step1,
-  run_step2_with_progress,
-  run_step3,
-  run_step4,
-  run_step5,
+  run_step2_audio,
+  run_step3_schedule,
+  run_step4_clips,
+  run_step5_merge,
 )
 
 # 태스크 실행용 executor
@@ -59,7 +59,7 @@ async def run_pipeline(request: PipelineRunRequest, background_tasks: Background
 
 @router.post('/steps/step0')
 async def run_step0_endpoint(request: StepRequest) -> dict:
-  """Step 0 실행"""
+  """Step 0: OCR 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
@@ -69,17 +69,17 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
   if not image_path:
     raise HTTPException(status_code=400, detail='이미지가 업로드되지 않았습니다')
 
-  # 하위 스텝 캐시 무효화
+  # 하위 스텝 캐시 무효화 (v2: Step 2부터 시작)
   if request.invalidate_downstream:
     task.ocr_text = None
     task.nlp_cache_path = None
-    task.image_paths = []
     task.audio_paths = []
-    task.subtitle_path = None
+    task.tts_alignment_paths = []
+    task.frame_schedule_path = None
+    task.video_clip_paths = []
     task.video_path = None
 
   def _run_sync():
-    # 기존 이벤트 루프 정리 (Windows/ThreadPoolExecutor 호환성)
     try:
       asyncio.set_event_loop(None)
     except Exception:
@@ -91,14 +91,13 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     except Exception as e:
       logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step1')
 async def run_step1_endpoint(request: StepRequest) -> dict:
-  """Step 1 실행"""
+  """Step 1: NLP 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
@@ -110,29 +109,27 @@ async def run_step1_endpoint(request: StepRequest) -> dict:
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
     task.nlp_cache_path = None
-    task.image_paths = []
     task.audio_paths = []
-    task.subtitle_path = None
+    task.tts_alignment_paths = []
+    task.frame_schedule_path = None
+    task.video_clip_paths = []
     task.video_path = None
 
   def _run_sync():
-    # asyncio.run() 사용
     try:
       asyncio.run(run_step1(request.task_id, task.ocr_text, request.use_cache))
     except Exception as e:
       logger.error(f'Step 1 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    # asyncio.run()이 자동 정리
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step2')
 async def run_step2_endpoint(request: StepRequest) -> dict:
-  """Step 2 실행 (오래 걸림)"""
+  """Step 2: ElevenLabs TTS 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
@@ -141,15 +138,10 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
   if not task.nlp_cache_path:
     raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
 
-  # ComfyUI 헬스체크
-  comfyui_host = os.getenv('COMFYUI_HOST', '127.0.0.1')
-  comfyui_port = os.getenv('COMFYUI_PORT', '8188')
-  comfyui_base_url = f'http://{comfyui_host}:{comfyui_port}'
-
-  try:
-    requests.get(f'{comfyui_base_url}/system_stats', timeout=3)
-  except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-    error_msg = f'ComfyUI 서버가 실행되지 않았습니다. {comfyui_host}:{comfyui_port}에 연결할 수 없습니다. ComfyUI 디렉토리에서 "python main.py"를 실행한 후 다시 시도하세요.'
+  # ElevenLabs API 키 확인
+  elevenlabs_api_key = os.getenv('ELEVENLABS_API_KEY', '')
+  if not elevenlabs_api_key:
+    error_msg = 'ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다'
     task.status = StepStatusEnum.failed
     task.status_message = error_msg
     task.error_log['step2'] = error_msg
@@ -157,123 +149,137 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
-    task.image_paths = []
-    task.audio_paths = []
-    task.subtitle_path = None
+    task.tts_alignment_paths = []
+    task.frame_schedule_path = None
+    task.video_clip_paths = []
     task.video_path = None
 
   def _run_sync():
-    # asyncio.run() 사용
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-        image_prompts = nlp_data.get('image_prompts', [])
-      asyncio.run(run_step2_with_progress(request.task_id, image_prompts, request.use_cache))
+        script_data = nlp_data.get('modern_script_data', [])
+      asyncio.run(run_step2_audio(request.task_id, script_data, request.use_cache))
     except Exception as e:
       logger.error(f'Step 2 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    # asyncio.run()이 자동 정리
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step3')
 async def run_step3_endpoint(request: StepRequest) -> dict:
-  """Step 3 실행"""
+  """Step 3: 동적 프레임 스케줄링 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
   task = task_status_dict[request.task_id]
 
-  if not task.nlp_cache_path:
-    raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
+  if not task.audio_paths or not task.tts_alignment_paths:
+    raise HTTPException(
+      status_code=400,
+      detail='ElevenLabs 오디오/타임스탬프가 없습니다. Step 2를 먼저 실행하세요'
+    )
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
-    task.audio_paths = []
-    task.subtitle_path = None
+    task.frame_schedule_path = None
+    task.video_clip_paths = []
     task.video_path = None
 
   def _run_sync():
-    # asyncio.run() 사용
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
-        script_data = json.load(f).get('modern_script_data', [])
-      asyncio.run(run_step3(request.task_id, script_data, request.use_cache))
+        nlp_data = json.load(f)
+        script_data = nlp_data.get('modern_script_data', [])
+      asyncio.run(run_step3_schedule(
+        request.task_id,
+        script_data,
+        task.tts_alignment_paths,
+        request.use_cache
+      ))
     except Exception as e:
       logger.error(f'Step 3 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    # asyncio.run()이 자동 정리
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step4')
 async def run_step4_endpoint(request: StepRequest) -> dict:
-  """Step 4 실행"""
+  """Step 4: AnimateDiff 비디오 클립 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
   task = task_status_dict[request.task_id]
 
-  if not task.audio_paths:
-    raise HTTPException(status_code=400, detail='오디오가 없습니다. Step 3을 먼저 실행하세요')
+  if not task.frame_schedule_path:
+    raise HTTPException(
+      status_code=400,
+      detail='프레임 스케줄이 없습니다. Step 3을 먼저 실행하세요'
+    )
 
-  if not task.nlp_cache_path:
-    raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
+  # ComfyUI 헬스체크
+  comfyui_host = os.getenv('COMFYUI_HOST', 'http://127.0.0.1:8188')
+  try:
+    requests.get(f'{comfyui_host}/system_stats', timeout=3)
+  except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+    error_msg = f'ComfyUI 서버가 실행되지 않았습니다. {comfyui_host}에 연결할 수 없습니다. ' \
+                f'ComfyUI 디렉토리에서 python main.py를 실행한 후 다시 시도하세요.'
+    task.status = StepStatusEnum.failed
+    task.status_message = error_msg
+    task.error_log['step4'] = error_msg
+    raise HTTPException(status_code=503, detail=error_msg)
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
-    task.subtitle_path = None
+    task.video_clip_paths = []
     task.video_path = None
 
   def _run_sync():
-    # asyncio.run() 사용
     try:
-      import json
-      with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
-        script_data = json.load(f).get('modern_script_data', [])
-      asyncio.run(run_step4(request.task_id, task.audio_paths, script_data))
+      asyncio.run(run_step4_clips(request.task_id, task.frame_schedule_path, request.use_cache))
     except Exception as e:
       logger.error(f'Step 4 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    # asyncio.run()이 자동 정리
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step5')
 async def run_step5_endpoint(request: StepRequest) -> dict:
-  """Step 5 실행"""
+  """Step 5: Burn-in + 최종 병합 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
   task = task_status_dict[request.task_id]
 
-  if not task.subtitle_path:
-    raise HTTPException(status_code=400, detail='자막이 없습니다. Step 4를 먼저 실행하세요')
+  if not task.video_clip_paths:
+    raise HTTPException(
+      status_code=400,
+      detail='비디오 클립이 없습니다. Step 4를 먼저 실행하세요'
+    )
 
   def _run_sync():
-    # asyncio.run() 사용
     try:
-      asyncio.run(run_step5(request.task_id, task.image_paths, task.audio_paths, task.subtitle_path))
+      asyncio.run(run_step5_merge(
+        request.task_id,
+        task.video_clip_paths,
+        task.audio_paths,
+        task.tts_alignment_paths
+      ))
     except Exception as e:
       logger.error(f'Step 5 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    # asyncio.run()이 자동 정리
 
-  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}

@@ -200,7 +200,7 @@ else:
   else:
     st.title('📺 고전시가 → YouTube Shorts 자동 생성')
 
-    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🎨 Step 2: 이미지', '🔊 Step 3: 오디오', '📄 Step 4: 자막', '🎬 Step 5: 영상'])
+    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🔊 Step 2: 음성+타임스탬프', '🎞️ Step 3: 프레임 스케줄', '🎬 Step 4: 영상 클립', '✅ Step 5: 최종 병합'])
 
     # ========================================================================
     # Tab 0: OCR
