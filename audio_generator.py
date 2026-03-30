@@ -11,7 +11,9 @@ from typing import Optional
 from dotenv import load_dotenv
 import requests
 
-load_dotenv()
+# .env 파일 명시적 로드
+env_path = Path(__file__).parent / '.env'
+load_dotenv(env_path)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,12 @@ ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID', 'onwK4e9ZDvw9KNAVq4mQ')  
 ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1'
 CACHE_DIR = Path('cache/step2')
 MAX_RETRIES = 3
+
+# 환경변수 로드 로깅
+if not ELEVENLABS_API_KEY:
+  logger.warning(f'ELEVENLABS_API_KEY not set. env_path={env_path}')
+else:
+  logger.info(f'ELEVENLABS_API_KEY loaded: {ELEVENLABS_API_KEY[:20]}...')
 
 
 def get_cache_path(text: str, idx: int, suffix: str) -> Path:
@@ -130,15 +138,19 @@ def group_alignment_into_sentences(words: list[dict], text: str) -> list[dict]:
   return sentences
 
 
-def call_elevenlabs_api(narration: str, voice_id: str) -> tuple[bytes, dict]:
+def call_elevenlabs_api(narration: str, voice_id: str) -> bytes:
   """
-  ElevenLabs API 호출 (타임스탬프 포함)
-  반환: (audio_bytes, alignment_dict)
+  ElevenLabs API 호출 (Free 버전 대응)
+  반환: audio_bytes
+
+  Note: Free 버전은 with-timestamps 미지원이므로 기본 TTS만 사용
+  Free 티어용 output_format 고정: mp3_44100_128
   """
   if not ELEVENLABS_API_KEY:
     raise ValueError('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
 
-  url = f'{ELEVENLABS_API_URL}/text-to-speech/{voice_id}/with-timestamps'
+  # Free 버전: 기본 TTS 엔드포인트 사용
+  url = f'{ELEVENLABS_API_URL}/text-to-speech/{voice_id}'
   headers = {
     'xi-api-key': ELEVENLABS_API_KEY,
     'Content-Type': 'application/json'
@@ -146,6 +158,7 @@ def call_elevenlabs_api(narration: str, voice_id: str) -> tuple[bytes, dict]:
   body = {
     'text': narration,
     'model_id': 'eleven_multilingual_v2',
+    'output_format': 'mp3_44100_128',  # Free 티어용 포맷 고정
     'voice_settings': {
       'stability': 0.5,
       'similarity_boost': 0.75
@@ -156,23 +169,8 @@ def call_elevenlabs_api(narration: str, voice_id: str) -> tuple[bytes, dict]:
     try:
       response = requests.post(url, json=body, headers=headers, timeout=30)
       if response.status_code == 200:
-        data = response.json()
-        # audio_base64 → bytes로 변환
-        import base64
-        audio_bytes = base64.b64decode(data['audio_base64'])
-
-        # alignment 추출 및 단어/문장 그룹핑
-        character_times = data.get('alignment', {}).get('characters', [])
-        words = group_alignment_into_words(character_times)
-        sentences = group_alignment_into_sentences(words, narration)
-
-        alignment_dict = {
-          'words': words,
-          'sentences': sentences,
-          'total_duration': character_times[-1].get('end_time_ms', 0) / 1000 if character_times else 0
-        }
-
-        return audio_bytes, alignment_dict
+        # 직접 바이너리 응답 (JSON이 아님)
+        return response.content
 
       elif response.status_code == 401:
         logger.error('ElevenLabs API 인증 실패 (유효하지 않은 API 키)')
@@ -182,7 +180,7 @@ def call_elevenlabs_api(narration: str, voice_id: str) -> tuple[bytes, dict]:
         logger.warning(f'ElevenLabs API 비율 제한, 재시도 {attempt + 1}/{MAX_RETRIES}')
         if attempt < MAX_RETRIES - 1:
           import time
-          time.sleep(2 ** attempt)  # 지수 백오프
+          time.sleep(2 ** attempt)
           continue
         raise RuntimeError('ElevenLabs API 비율 제한 초과')
 
@@ -205,6 +203,68 @@ def call_elevenlabs_api(narration: str, voice_id: str) -> tuple[bytes, dict]:
   raise RuntimeError('ElevenLabs API 호출 최대 재시도 횟수 초과')
 
 
+def estimate_alignment_from_audio(
+  audio_path: str,
+  text: str
+) -> dict:
+  """
+  오디오 파일의 길이로부터 alignment 추정 (Free 버전용)
+
+  단어/문장을 균등하게 분배하여 타임스탬프 생성
+  (실제 음성 길이에 기반하지만 정확도는 떨어짐)
+  """
+  import wave
+
+  try:
+    # 오디오 길이 조회
+    with wave.open(audio_path, 'rb') as wav_file:
+      frames = wav_file.getnframes()
+      rate = wav_file.getframerate()
+      total_duration = frames / rate
+  except Exception as e:
+    logger.warning(f'오디오 길이 조회 실패: {e}, 텍스트 길이로 추정')
+    # 텍스트 길이로 추정 (대략 0.1초/글자)
+    total_duration = max(2.0, len(text) * 0.1)
+
+  # 단어 분리
+  words = text.split()
+  word_duration = total_duration / max(len(words), 1)
+
+  # 문장 분리 (마침표, 느낌표, 물음표 기준)
+  import re
+  sentences_raw = re.split(r'[.!?。!？]+', text)
+  sentences = [s.strip() for s in sentences_raw if s.strip()]
+
+  # word-level alignment 생성
+  word_times = []
+  current_time = 0.0
+  for word in words:
+    word_times.append({
+      'word': word,
+      'start': current_time,
+      'end': current_time + word_duration
+    })
+    current_time += word_duration
+
+  # sentence-level alignment 생성
+  sentence_times = []
+  sent_duration = total_duration / max(len(sentences), 1)
+  current_time = 0.0
+  for sent in sentences:
+    sentence_times.append({
+      'text': sent,
+      'start': current_time,
+      'end': current_time + sent_duration
+    })
+    current_time += sent_duration
+
+  return {
+    'total_duration': total_duration,
+    'words': word_times,
+    'sentences': sentence_times
+  }
+
+
 def generate_audio_with_alignment(
   narration: str,
   scene_index: int,
@@ -214,6 +274,8 @@ def generate_audio_with_alignment(
   """
   씬별 오디오 생성 (MP3 + alignment JSON)
   반환: (mp3_path, alignment_path)
+
+  Free 버전: 기본 TTS + 추정 alignment
   """
   mp3_path = get_cache_path(narration, scene_index, '_audio.mp3')
   alignment_path = get_cache_path(narration, scene_index, '_alignment.json')
@@ -225,7 +287,7 @@ def generate_audio_with_alignment(
 
   # API 호출
   logger.info(f'ElevenLabs 오디오 생성: Scene {scene_index}')
-  audio_bytes, alignment_dict = call_elevenlabs_api(narration, voice_id)
+  audio_bytes = call_elevenlabs_api(narration, voice_id)
 
   # MP3 저장
   mp3_path.parent.mkdir(parents=True, exist_ok=True)
@@ -233,9 +295,12 @@ def generate_audio_with_alignment(
     f.write(audio_bytes)
   logger.info(f'MP3 저장: {mp3_path}')
 
-  # alignment JSON 저장
+  # alignment 추정 및 저장
+  alignment_dict = estimate_alignment_from_audio(str(mp3_path), narration)
   alignment_dict['scene_index'] = scene_index
   alignment_dict['audio_path'] = str(mp3_path)
+  alignment_dict['note'] = 'Free 버전: 추정된 타임스탬프 (정확도 낮음)'
+
   save_alignment_to_cache(alignment_path, alignment_dict)
 
   return mp3_path, alignment_path
@@ -253,14 +318,14 @@ def generate_all_audio(
   alignment_paths = []
 
   for idx, scene in enumerate(script_data):
-    narration = scene.get('narration', '')
-    if not narration:
-      logger.warning(f'Scene {idx}: 나레이션이 없습니다')
+    text_content = scene.get('modern_text', '')
+    if not text_content:
+      logger.warning(f'Scene {idx}: modern_text가 없습니다')
       continue
 
     try:
       mp3_path, alignment_path = generate_audio_with_alignment(
-        narration,
+        text_content,
         idx,
         use_cache=use_cache
       )
@@ -275,22 +340,34 @@ def generate_all_audio(
 
 
 def cmd_check() -> bool:
-  """ElevenLabs API 연결 확인"""
+  """ElevenLabs API 연결 확인 (TTS 엔드포인트 테스트)"""
   if not ELEVENLABS_API_KEY:
     logger.error('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
     return False
 
+  if not ELEVENLABS_VOICE_ID:
+    logger.error('ELEVENLABS_VOICE_ID 환경변수가 설정되지 않았습니다')
+    return False
+
   try:
-    # API 연결 테스트 (voices 조회)
-    url = f'{ELEVENLABS_API_URL}/voices'
-    headers = {'xi-api-key': ELEVENLABS_API_KEY}
-    response = requests.get(url, headers=headers, timeout=5)
+    # API 연결 테스트 (TTS 호출)
+    url = f'{ELEVENLABS_API_URL}/text-to-speech/{ELEVENLABS_VOICE_ID}'
+    headers = {
+      'xi-api-key': ELEVENLABS_API_KEY,
+      'Content-Type': 'application/json'
+    }
+    body = {
+      'text': '테스트',
+      'model_id': 'eleven_multilingual_v2',
+      'output_format': 'mp3_44100_128'
+    }
+    response = requests.post(url, json=body, headers=headers, timeout=10)
 
     if response.status_code == 200:
       logger.info('✓ ElevenLabs API 연결 성공')
       return True
     else:
-      logger.error(f'✗ ElevenLabs API 오류: {response.status_code}')
+      logger.error(f'✗ ElevenLabs API 오류: {response.status_code} - {response.text[:100]}')
       return False
   except Exception as e:
     logger.error(f'✗ ElevenLabs API 연결 실패: {e}')

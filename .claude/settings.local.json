@@ -148,7 +148,8 @@
       "Bash(cmd /c \"tasklist /FI \"\"PID eq 26452\"\" /FO CSV\")",
       "Bash(cmd /c \"tasklist /FI \"\"PID eq 32336\"\" /FO CSV\")",
       "Bash(powershell -Command \"Get-Process -Id 28440,34656,26452,32336 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CPU,WorkingSet\")",
-      "Bash(powershell -Command \"Get-Process -Id 32336, 34656, 26452, 28440 | Select-Object Id, ProcessName, MainWindowTitle\" 2>&1)"
+      "Bash(powershell -Command \"Get-Process -Id 32336, 34656, 26452, 28440 | Select-Object Id, ProcessName, MainWindowTitle\" 2>&1)",
+      "Bash(find . -name *.png -type f)"
     ]
   }
 }
