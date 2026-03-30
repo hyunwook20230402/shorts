@@ -5,6 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 
 from api.routes import upload, tasks, steps, files
 
@@ -20,11 +21,12 @@ logging.basicConfig(
   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# FastAPI 앱 생성
+# FastAPI 앱 생성 (UTF-8 JSON 응답)
 app = FastAPI(
   title='고전시가 → YouTube Shorts 자동 생성 파이프라인 API',
   version='1.0.0',
-  description='Step 0~5 웹 UI 백엔드 API 서버'
+  description='Step 0~5 웹 UI 백엔드 API 서버',
+  default_response_class=ORJSONResponse  # UTF-8 인코딩 보장
 )
 
 # 미들웨어 설정

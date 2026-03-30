@@ -131,7 +131,9 @@
       "Bash(curl:*)",
       "Bash(grep -E \"\\\\.py$|^d\")",
       "Bash(xargs -r kill -9)",
-      "Bash(find .claude/rules -name \"*.md\" -exec wc -c {} +)"
+      "Bash(find .claude/rules -name \"*.md\" -exec wc -c {} +)",
+      "Bash(git rm:*)",
+      "Bash(pkill -f \"streamlit run\")"
     ]
   }
 }
