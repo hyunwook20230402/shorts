@@ -80,20 +80,14 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     # 기존 이벤트 루프 정리 (Windows/ThreadPoolExecutor 호환성)
     try:
       asyncio.set_event_loop(None)
-    except:
+    except Exception:
       pass
     try:
-      print(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
+      logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
       asyncio.run(run_step0(request.task_id, image_path, request.use_cache))
-      print('[EXECUTOR] Step 0 완료')
-      current_task = task_status_dict[request.task_id]
-      print(f'[EXECUTOR] 최종: status={current_task.status}')
+      logger.info(f'[EXECUTOR] Step 0 완료: status={task_status_dict[request.task_id].status}')
     except Exception as e:
-      print(f'[EXECUTOR] 오류: {e}')
-      import traceback
-      traceback.print_exc()
-      task.status = StepStatusEnum.failed
-      task.status_message = str(e)
+      logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)

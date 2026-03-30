@@ -1,5 +1,7 @@
 import logging
 import os
+import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,13 +22,55 @@ logging.basicConfig(
   level=logging.INFO,
   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
+
+api_port = int(os.environ.get('API_PORT', '8000'))
+
+
+def kill_port(port: int):
+  """포트 점유 중인 다른 FastAPI 프로세스 종료 (Windows)"""
+  import time
+  my_pid = os.getpid()
+  killed = False
+  try:
+    result = subprocess.run(
+      ['netstat', '-ano'],
+      capture_output=True, text=True
+    )
+    for line in result.stdout.splitlines():
+      if f':{port}' in line and 'LISTENING' in line:
+        parts = line.split()
+        try:
+          pid = int(parts[-1])
+          if pid != my_pid:
+            subprocess.run(['taskkill', '/PID', str(pid), '/F'],
+                           capture_output=True)
+            logger.info(f'포트 {port} 점유 프로세스 종료: PID {pid}')
+            killed = True
+        except (ValueError, IndexError):
+          pass
+  except Exception as e:
+    logger.warning(f'포트 정리 중 오류 (무시): {e}')
+
+  # 종료한 프로세스가 있으면 포트 해제될 때까지 대기
+  if killed:
+    time.sleep(2)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+  logger.info(f'FastAPI 시작: PID={os.getpid()}, PORT={api_port}')
+  yield
+  logger.info('FastAPI 종료')
+
 
 # FastAPI 앱 생성 (UTF-8 JSON 응답)
 app = FastAPI(
   title='고전시가 → YouTube Shorts 자동 생성 파이프라인 API',
   version='1.0.0',
   description='Step 0~5 웹 UI 백엔드 API 서버',
-  default_response_class=ORJSONResponse  # UTF-8 인코딩 보장
+  default_response_class=ORJSONResponse,
+  lifespan=lifespan,
 )
 
 # 미들웨어 설정
@@ -51,13 +95,15 @@ async def health_check() -> dict:
   return {
     'status': 'ok',
     'service': '고전시가 파이프라인 API',
-    'version': '1.0.0'
+    'version': '1.0.0',
+    'pid': os.getpid(),
   }
 
 
 if __name__ == '__main__':
   import uvicorn
-  api_port = int(os.environ.get('API_PORT', '8000'))
+  # uvicorn 바인딩 전에 포트 정리
+  kill_port(api_port)
   uvicorn.run(
     app,
     host='0.0.0.0',
