@@ -83,13 +83,15 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     except:
       pass
     try:
-      logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
+      print(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
       asyncio.run(run_step0(request.task_id, image_path, request.use_cache))
-      logger.info('[EXECUTOR] Step 0 완료')
+      print('[EXECUTOR] Step 0 완료')
       current_task = task_status_dict[request.task_id]
-      logger.info(f'[EXECUTOR] 최종 확인: task.status={current_task.status}, ocr_len={len(current_task.ocr_text) if current_task.ocr_text else 0}')
+      print(f'[EXECUTOR] 최종: status={current_task.status}')
     except Exception as e:
-      logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
+      print(f'[EXECUTOR] 오류: {e}')
+      import traceback
+      traceback.print_exc()
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
 
