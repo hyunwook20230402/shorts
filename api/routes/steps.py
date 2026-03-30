@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
@@ -14,6 +15,9 @@ from api.pipeline_runner import (
   run_step4,
   run_step5,
 )
+
+# 태스크 실행용 executor
+_executor = ThreadPoolExecutor(max_workers=2)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,7 +58,7 @@ async def run_pipeline(request: PipelineRunRequest, background_tasks: Background
 
 
 @router.post('/steps/step0')
-async def run_step0_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step0_endpoint(request: StepRequest) -> dict:
   """Step 0 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -75,27 +79,26 @@ async def run_step0_endpoint(request: StepRequest, background_tasks: BackgroundT
     task.video_path = None
 
   def _run_sync():
-    logger.info(f'[BACKGROUND] Step 0 태스크 시작: task_id={request.task_id}')
+    logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-      logger.info(f'[BACKGROUND] 이벤트 루프 생성 완료, run_step0 호출 중...')
       loop.run_until_complete(run_step0(request.task_id, image_path, request.use_cache))
-      logger.info(f'[BACKGROUND] run_step0 완료')
+      logger.info('[EXECUTOR] Step 0 완료')
     except Exception as e:
-      logger.error(f'[BACKGROUND] Step 0 오류: {e}', exc_info=True)
+      logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
     finally:
-      logger.info(f'[BACKGROUND] 이벤트 루프 종료')
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행 (BackgroundTasks 대신)
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step1')
-async def run_step1_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step1_endpoint(request: StepRequest) -> dict:
   """Step 1 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -125,12 +128,13 @@ async def run_step1_endpoint(request: StepRequest, background_tasks: BackgroundT
     finally:
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step2')
-async def run_step2_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step2_endpoint(request: StepRequest) -> dict:
   """Step 2 실행 (오래 걸림)"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -163,12 +167,13 @@ async def run_step2_endpoint(request: StepRequest, background_tasks: BackgroundT
     finally:
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step3')
-async def run_step3_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step3_endpoint(request: StepRequest) -> dict:
   """Step 3 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -199,12 +204,13 @@ async def run_step3_endpoint(request: StepRequest, background_tasks: BackgroundT
     finally:
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step4')
-async def run_step4_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step4_endpoint(request: StepRequest) -> dict:
   """Step 4 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -237,12 +243,13 @@ async def run_step4_endpoint(request: StepRequest, background_tasks: BackgroundT
     finally:
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
 
 @router.post('/steps/step5')
-async def run_step5_endpoint(request: StepRequest, background_tasks: BackgroundTasks) -> dict:
+async def run_step5_endpoint(request: StepRequest) -> dict:
   """Step 5 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
@@ -264,5 +271,6 @@ async def run_step5_endpoint(request: StepRequest, background_tasks: BackgroundT
     finally:
       loop.close()
 
-  background_tasks.add_task(_run_sync)
+  # ThreadPoolExecutor로 즉시 실행
+  _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
