@@ -19,7 +19,7 @@ st.set_page_config(
 
 # API 기본 설정
 if 'api_base' not in st.session_state:
-  st.session_state.api_base = 'http://127.0.0.1:8001/api/v1'
+  st.session_state.api_base = 'http://127.0.0.1:8000/api/v1'
 
 if 'task_id' not in st.session_state:
   st.session_state.task_id = None
