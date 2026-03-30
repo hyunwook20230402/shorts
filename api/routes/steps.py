@@ -77,8 +77,13 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     task.video_path = None
 
   def _run_sync():
-    logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
+    # 기존 이벤트 루프 정리 (Windows/ThreadPoolExecutor 호환성)
     try:
+      asyncio.set_event_loop(None)
+    except:
+      pass
+    try:
+      logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
       asyncio.run(run_step0(request.task_id, image_path, request.use_cache))
       logger.info('[EXECUTOR] Step 0 완료')
       current_task = task_status_dict[request.task_id]
