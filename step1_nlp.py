@@ -588,12 +588,11 @@ def process_nlp(
 
     modern_script_data = validated_scenes
 
-    # 8. 캐시 저장
-    if use_cache:
-      save_to_cache(cache_path, {
-        'modern_script_data': modern_script_data,
-        'image_prompts': image_prompts,
-      })
+    # 8. 캐시 저장 (use_cache 여부와 무관하게 항상 저장 — 하위 단계에서 파일 필요)
+    save_to_cache(cache_path, {
+      'modern_script_data': modern_script_data,
+      'image_prompts': image_prompts,
+    })
 
     # 9. Notion: poem_translation_log 기록
     log_to_notion_poem(extracted_raw_text, modern_script_data, task_id)
