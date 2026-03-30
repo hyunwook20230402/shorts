@@ -338,6 +338,11 @@ else:
               st.caption(f"씬 {idx + 1}")
             except Exception as e:
               st.error(f'이미지 로드 오류: {e}')
+
+        # QA 안내 버튼
+        if st.button('🔍 이미지 검증 실행', key='step2_qa'):
+          st.info('💬 Claude에게 "이미지 검증해줘"라고 입력하면 quality-assurance-agent가 대본-이미지 정합성을 검증합니다.')
+
       elif status.get('error_log', {}).get('step2'):
         st.error(f"❌ Step 2 오류: {status['error_log']['step2']}")
       else:
