@@ -13,12 +13,12 @@ from dotenv import load_dotenv
 from moviepy.editor import (
   VideoFileClip,
   concatenate_videoclips,
+  concatenate_audioclips,
   TextClip,
   CompositeVideoClip,
   ColorClip,
   AudioFileClip
 )
-from moviepy.audio.io.AudioFileClip import AudioFileClip as AudioFileClipClass
 import numpy as np
 
 load_dotenv()
@@ -85,23 +85,23 @@ def make_subtitle_clip_for_sentence(
       fontsize=SUBTITLE_FONT_SIZE,
       font=str(SUBTITLE_FONT_PATH),
       color=SUBTITLE_COLOR,
-      bg_color=(0, 0, 0),  # 검은색 배경
       method='caption',
       size=(video_width - 100, None),  # 양측 여백 50px씩
       align='center'
     )
 
-    # 자막 위치: 화면 하단 (y=video_height-200)
-    txt_clip = txt_clip.set_position(
-      ('center', video_height - 250)
-    ).set_duration(
-      end_time - start_time
-    ).set_start(start_time)
+    # 자막 위치: 화면 하단 (y=video_height-250)
+    duration = end_time - start_time
+    txt_clip = txt_clip.set_duration(duration).set_start(start_time)
+    txt_clip = txt_clip.set_position(('center', video_height - 250))
 
+    logger.debug(f'자막 생성: "{text[:30]}" ({start_time:.2f}~{end_time:.2f}s, duration={duration:.2f}s)')
     return txt_clip
 
   except Exception as e:
-    logger.warning(f'자막 클립 생성 실패: {text[:20]}, {e}')
+    logger.warning(f'자막 클립 생성 실패: {text[:30]}, {e}')
+    import traceback
+    traceback.print_exc()
     return None
 
 
@@ -220,17 +220,21 @@ def composite_video_with_audio(
       audio_clips.append(audio)
       logger.info(f'오디오 로드: {audio_path} ({audio.duration:.2f}s)')
 
-    # 오디오 연결
-    combined_audio = concatenate_videoclips(audio_clips, method='chain').audio \
-      if len(audio_clips) > 1 else audio_clips[0]
+    # 오디오 연결 (concatenate_audioclips 사용)
+    if len(audio_clips) > 1:
+      combined_audio = concatenate_audioclips(audio_clips)
+    else:
+      combined_audio = audio_clips[0]
 
     # 비디오에 오디오 설정
     final_video = video_clip.set_audio(combined_audio)
-    logger.info(f'오디오 싱크 완료')
+    logger.info(f'오디오 싱크 완료: {combined_audio.duration:.2f}s')
     return final_video
 
   except Exception as e:
     logger.error(f'오디오 합치기 실패: {e}')
+    import traceback
+    traceback.print_exc()
     return video_clip
 
 
@@ -322,9 +326,10 @@ def compose_final_video(
     video = concatenate_clips(video_clip_paths)
     logger.info(f'클립 연결 완료: {video.duration:.2f}s')
 
-    # 2. 자막 Burn-in
-    video = add_subtitles_to_video(video, alignment_paths, video_clip_paths)
-    logger.info(f'자막 추가 완료')
+    # 2. 자막 Burn-in (ImageMagick 필요 - 임시로 스킵)
+    # TODO: ffmpeg 자막 필터 또는 ImageMagick 설치 후 구현
+    # video = add_subtitles_to_video(video, alignment_paths, video_clip_paths)
+    logger.warning(f'자막 추가 스킵 (ImageMagick 필요)')
 
     # 3. 오디오 싱크
     video = composite_video_with_audio(video, audio_paths)

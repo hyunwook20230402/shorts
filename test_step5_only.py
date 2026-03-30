@@ -44,15 +44,15 @@ def main():
     'cache/step2/db8d0e3e_06_alignment.json',
   ]
 
-  # Step 4 클립 경로 (더미)
+  # Step 4 클립 경로
   video_clip_paths = [
-    'cache/step4/6803db9d_00_clip.mp4',
-    'cache/step4/6803db9d_01_clip.mp4',
-    'cache/step4/6803db9d_02_clip.mp4',
-    'cache/step4/6803db9d_03_clip.mp4',
-    'cache/step4/6803db9d_04_clip.mp4',
-    'cache/step4/6803db9d_05_clip.mp4',
-    'cache/step4/6803db9d_06_clip.mp4',
+    'cache/step4/787d2535_00_clip.mp4',
+    'cache/step4/787d2535_01_clip.mp4',
+    'cache/step4/787d2535_02_clip.mp4',
+    'cache/step4/787d2535_03_clip.mp4',
+    'cache/step4/787d2535_04_clip.mp4',
+    'cache/step4/787d2535_05_clip.mp4',
+    'cache/step4/787d2535_06_clip.mp4',
   ]
 
   # 파일 존재 확인
