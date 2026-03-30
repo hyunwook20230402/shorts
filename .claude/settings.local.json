@@ -149,7 +149,14 @@
       "Bash(cmd /c \"tasklist /FI \"\"PID eq 32336\"\" /FO CSV\")",
       "Bash(powershell -Command \"Get-Process -Id 28440,34656,26452,32336 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CPU,WorkingSet\")",
       "Bash(powershell -Command \"Get-Process -Id 32336, 34656, 26452, 28440 | Select-Object Id, ProcessName, MainWindowTitle\" 2>&1)",
-      "Bash(find . -name *.png -type f)"
+      "Bash(find . -name *.png -type f)",
+      "Read(//c/ComfyUI/**)",
+      "Read(//d/ComfyUI/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); loras=d.get\\(''''LoraLoader'''',{}\\).get\\(''''input'''',{}\\).get\\(''''required'''',{}\\).get\\(''''lora_name'''',[[]]\\);print\\(loras[0][:5] if loras else ''''no loras''''\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); ckpts=d.get\\(''''CheckpointLoaderSimple'''',{}\\).get\\(''''input'''',{}\\).get\\(''''required'''',{}\\).get\\(''''ckpt_name'''',[[]]\\);print\\(ckpts[0][:10] if ckpts else ''''no checkpoints''''\\)\")",
+      "Bash(rm -rf /c/Users/user/workspaces/shorts/cache/step4/*)",
+      "Bash(rm -rf /c/Users/user/workspaces/shorts/cache/step5/*)",
+      "Bash(ffprobe -v error -show_format -show_streams /c/Users/user/workspaces/shorts/cache/step5/*.mp4)"
     ]
   }
 }

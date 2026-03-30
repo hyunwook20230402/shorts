@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 
 # 환경변수
 COMFYUI_HOST = os.getenv('COMFYUI_HOST', 'http://127.0.0.1:8188')
-SD15_CHECKPOINT = os.getenv('SD15_CHECKPOINT', 'Realistic Vision v5.1.safetensors')
+SD15_CHECKPOINT = os.getenv('SD15_CHECKPOINT', 'Realistic_Vision_V5.1.safetensors')
 ANIMATEDIFF_MOTION_MODULE = os.getenv('ANIMATEDIFF_MOTION_MODULE', 'mm_sd_v15_v2.ckpt')
-LORA_NAME = os.getenv('LORA_NAME', '【国风插画】古风.safetensors')
+LORA_NAME = os.getenv('LORA_NAME', 'E38090E59BBDE9A38EE68F92E794BBE38091E58FAFE7.G2A0.safetensors')
 LORA_STRENGTH = float(os.getenv('LORA_STRENGTH', '0.8'))
 ANIMATEDIFF_FPS = int(os.getenv('ANIMATEDIFF_FPS', '10'))
 CHUNK_SIZE = int(os.getenv('ANIMATEDIFF_CHUNK_SIZE', '16'))  # VRAM 보호용 프레임 배치
 CACHE_DIR = Path('cache/step4')
-COMFYUI_OUTPUT_DIR = Path('ComfyUI/output')
+COMFYUI_OUTPUT_DIR = Path(os.getenv('COMFYUI_OUTPUT_DIR', 'ComfyUI/output'))
 COMFYUI_MAX_WAIT = int(os.getenv('COMFYUI_MAX_WAIT', '1200'))  # 초 단위
 
 MAX_RETRIES = 3
@@ -69,14 +69,13 @@ def build_animatediff_workflow(
 
   노드 구성:
   1: CheckpointLoaderSimple
-  2: ADE_AnimateDiffLoaderWithContext
-  3: LoraLoader (국풍 LoRA)
-  4: CLIPTextEncode (positive)
-  5: CLIPTextEncode (negative)
-  6: ADE_EmptyLatentImageLarge
-  7: ADE_UseEvolvedSampling (또는 KSampler)
-  8: VAEDecode
-  9: VHS_VideoCombine
+  2: LoraLoader (국풍 LoRA)
+  3: CLIPTextEncode (positive)
+  4: CLIPTextEncode (negative)
+  5: ADE_EmptyLatentImageLarge
+  6: KSampler
+  7: VAEDecode
+  8: VHS_VideoCombine (또는 SaveImage)
   """
   chunk_size = min(CHUNK_SIZE, total_frames)
 
@@ -88,40 +87,30 @@ def build_animatediff_workflow(
       }
     },
     '2': {
-      'class_type': 'ADE_AnimateDiffLoaderWithContext',
-      'inputs': {
-        'model': ['1', 0],
-        'motion_model': ANIMATEDIFF_MOTION_MODULE,
-        'beta_schedule': 'autoselect',
-        'motion_scale': 1.0,
-        'apply_v2_models_properly': True
-      }
-    },
-    '3': {
       'class_type': 'LoraLoader',
       'inputs': {
-        'model': ['2', 0],
+        'model': ['1', 0],
         'clip': ['1', 1],
         'lora_name': LORA_NAME,
         'strength_model': LORA_STRENGTH,
         'strength_clip': LORA_STRENGTH
       }
     },
-    '4': {
+    '3': {
       'class_type': 'CLIPTextEncode',
       'inputs': {
-        'clip': ['3', 1],
+        'clip': ['2', 1],
         'text': prompt
       }
     },
-    '5': {
+    '4': {
       'class_type': 'CLIPTextEncode',
       'inputs': {
-        'clip': ['3', 1],
+        'clip': ['2', 1],
         'text': negative_prompt
       }
     },
-    '6': {
+    '5': {
       'class_type': 'EmptyLatentImage',
       'inputs': {
         'width': 512,
@@ -129,13 +118,13 @@ def build_animatediff_workflow(
         'batch_size': chunk_size
       }
     },
-    '7': {
+    '6': {
       'class_type': 'KSampler',
       'inputs': {
-        'model': ['3', 0],
-        'positive': ['4', 0],
-        'negative': ['5', 0],
-        'latent_image': ['6', 0],
+        'model': ['2', 0],
+        'positive': ['3', 0],
+        'negative': ['4', 0],
+        'latent_image': ['5', 0],
         'seed': 42,
         'steps': 20,
         'cfg': 7.0,
@@ -144,31 +133,21 @@ def build_animatediff_workflow(
         'denoise': 1.0
       }
     },
-    '8': {
+    '7': {
       'class_type': 'VAEDecode',
       'inputs': {
-        'samples': ['7', 0],
+        'samples': ['6', 0],
         'vae': ['1', 2]
       }
     },
-    '9': {
-      'class_type': 'VHS_VideoCombine',
+    '8': {
+      'class_type': 'SaveImage',
       'inputs': {
-        'images': ['8', 0],
-        'frame_rate': ANIMATEDIFF_FPS,
-        'loop_count': 0,
-        'filename_prefix': 'animatediff_clip',
-        'format': 'video/h264-mp4',
-        'pingpong': False,
-        'save_output': True
+        'images': ['7', 0],
+        'filename_prefix': 'shorts_clip'
       }
     }
   }
-
-  # BatchPromptSchedule 지원 (있으면 추가)
-  # 현재는 단일 프롬프트로 동작, 향후 노드 4를 대체 가능
-  # prompt_schedule을 사용하려면 'ADE_BatchPromptSchedule' 노드 필요
-  # 현재 구현: 간단하게 첫 프롬프트만 사용
 
   return workflow
 
@@ -181,7 +160,7 @@ def submit_prompt_to_comfyui(workflow: dict) -> str:
   try:
     response = requests.post(
       f'{COMFYUI_HOST}/prompt',
-      json=workflow,
+      json={"prompt": workflow, "client_id": "shorts_pipeline"},
       timeout=30
     )
     if response.status_code == 200:
@@ -229,24 +208,52 @@ def poll_until_done(prompt_id: str, timeout: int = COMFYUI_MAX_WAIT) -> bool:
 
 def download_generated_video(output_prefix: str) -> Optional[Path]:
   """
-  ComfyUI output 디렉토리에서 생성된 MP4 파일 찾기
-  반환: 최신 MP4 파일 경로
+  ComfyUI output 디렉토리에서 생성된 PNG 프레임 수집 → ffmpeg로 MP4 변환
+  반환: 생성된 MP4 파일 경로
   """
   try:
-    output_files = sorted(
-      COMFYUI_OUTPUT_DIR.glob('*.mp4'),
+    # 최근 생성된 PNG 파일들 찾기 (output_prefix 기준)
+    png_files = sorted(
+      COMFYUI_OUTPUT_DIR.glob(f'{output_prefix}_*.png'),
       key=lambda p: p.stat().st_mtime,
-      reverse=True
+      reverse=False  # 오름차순 (프레임 순서)
     )
-    if output_files:
-      latest_video = output_files[0]
-      logger.info(f'생성된 비디오: {latest_video}')
-      return latest_video
-    else:
-      logger.error('ComfyUI output에서 MP4 파일을 찾을 수 없음')
+
+    if not png_files:
+      logger.error(f'{output_prefix}_*.png 파일을 찾을 수 없음')
       return None
+
+    logger.info(f'수집된 PNG 프레임: {len(png_files)}개')
+
+    # ffmpeg로 MP4 변환 (Windows 경로 처리)
+    output_mp4 = COMFYUI_OUTPUT_DIR / f'{output_prefix}.mp4'
+    # input_pattern은 forward slash 사용 (ffmpeg 호환성)
+    # ComfyUI는 파일명 뒤에 밑줄을 추가함: shorts_clip_00001_.png
+    input_pattern = str(COMFYUI_OUTPUT_DIR / f'{output_prefix}_%05d_.png').replace('\\', '/')
+
+    cmd = [
+      'ffmpeg',
+      '-framerate', str(ANIMATEDIFF_FPS),
+      '-i', input_pattern,
+      '-c:v', 'libx264',
+      '-crf', '23',
+      '-preset', 'fast',
+      '-y',  # 덮어쓰기
+      str(output_mp4)
+    ]
+
+    logger.info(f'ffmpeg 실행: {" ".join(cmd)}')
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+    if result.returncode == 0:
+      logger.info(f'MP4 변환 완료: {output_mp4}')
+      return output_mp4
+    else:
+      logger.error(f'ffmpeg 오류: {result.stderr}')
+      return None
+
   except Exception as e:
-    logger.error(f'비디오 다운로드 오류: {e}')
+    logger.error(f'비디오 변환 오류: {e}')
     return None
 
 
@@ -292,7 +299,7 @@ def generate_clip(
     raise RuntimeError(f'Scene {scene_index} 클립 생성 타임아웃')
 
   # 생성된 파일 다운로드
-  output_video = download_generated_video(f'animatediff_clip')
+  output_video = download_generated_video(f'shorts_clip')
   if not output_video:
     raise RuntimeError(f'Scene {scene_index} 클립 파일을 찾을 수 없음')
 
