@@ -260,32 +260,36 @@ else:
 
       if status['nlp_cache_path']:
         try:
-          with open(status['nlp_cache_path'], 'r', encoding='utf-8') as f:
-            nlp_data = json.load(f)
+          cache_path = Path(status['nlp_cache_path'])
+          if not cache_path.exists():
+            st.warning(f'⚠️ NLP 캐시 파일을 찾을 수 없습니다. Step 1을 다시 실행해주세요.\n경로: {status["nlp_cache_path"]}')
+          else:
+            with open(status['nlp_cache_path'], 'r', encoding='utf-8') as f:
+              nlp_data = json.load(f)
 
-          scenes = nlp_data.get('modern_script_data', [])
-          st.write(f'**총 {len(scenes)}개 씬**')
+            scenes = nlp_data.get('modern_script_data', [])
+            st.write(f'**총 {len(scenes)}개 씬**')
 
-          for idx, scene in enumerate(scenes):
-            with st.expander(f"씬 {idx + 1}: {scene.get('narration', '...')[:50]}..."):
-              col1, col2 = st.columns(2)
+            for idx, scene in enumerate(scenes):
+              with st.expander(f"씬 {idx + 1}: {scene.get('narration', '...')[:50]}..."):
+                col1, col2 = st.columns(2)
 
-              with col1:
-                st.write('**원문**')
-                st.text(scene.get('original_text', ''))
+                with col1:
+                  st.write('**원문**')
+                  st.text(scene.get('original_text', ''))
 
-                st.write('**현대어 번역**')
-                st.text(scene.get('modern_text', ''))
+                  st.write('**현대어 번역**')
+                  st.text(scene.get('modern_text', ''))
 
-              with col2:
-                st.write('**나레이션**')
-                st.text(scene.get('narration', ''))
+                with col2:
+                  st.write('**나레이션**')
+                  st.text(scene.get('narration', ''))
 
-                st.write('**감정**')
-                st.text(scene.get('emotion', ''))
+                  st.write('**감정**')
+                  st.text(scene.get('emotion', ''))
 
-                st.write('**배경**')
-                st.text(scene.get('background', ''))
+                  st.write('**배경**')
+                  st.text(scene.get('background', ''))
 
         except Exception as e:
           st.error(f'NLP 데이터 로드 오류: {e}')

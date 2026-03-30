@@ -140,7 +140,8 @@ def save_to_cache(cache_path: Path, data: dict) -> None:
     cache_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     logger.info('NLP 결과 캐시 저장: %s', cache_path)
   except Exception as e:
-    logger.warning('캐시 저장 실패: %s', str(e))
+    logger.error('캐시 저장 실패: %s', str(e))
+    raise
 
 
 def get_context_cache_path(text: str) -> Path:
@@ -576,8 +577,12 @@ def process_nlp(
     image_prompts: list = []
     for i, scene in enumerate(validated_scenes):
       logger.info('이미지 프롬프트 생성 중: 씬 %d/%d', i + 1, len(validated_scenes))
-      prompt = call_hcx005_image_prompt(scene)
-      final_prompt = f'{WEBTOON_STYLE_PREFIX}{prompt}'
+      try:
+        prompt = call_hcx005_image_prompt(scene)
+        final_prompt = f'{WEBTOON_STYLE_PREFIX}{prompt}'
+      except Exception as e:
+        logger.warning('씬 %d 이미지 프롬프트 생성 실패, 기본값 사용: %s', i + 1, str(e))
+        final_prompt = f'{WEBTOON_STYLE_PREFIX}Korean traditional scene, {scene["emotion"]} mood, historical atmosphere'
       scene['image_prompt'] = final_prompt
       image_prompts.append(final_prompt)
 

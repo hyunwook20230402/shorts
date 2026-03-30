@@ -146,6 +146,10 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
     from step1_nlp import get_cache_path
     nlp_path = get_cache_path(ocr_text)
 
+    # 파일 존재 검증
+    if not nlp_path.exists():
+      raise RuntimeError(f'NLP 캐시 파일이 생성되지 않았습니다: {nlp_path}')
+
     task = task_status_dict[task_id]
     task.nlp_cache_path = str(nlp_path).replace('\\', '/')
     task.status = StepStatusEnum.completed

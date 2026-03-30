@@ -133,7 +133,22 @@
       "Bash(xargs -r kill -9)",
       "Bash(find .claude/rules -name \"*.md\" -exec wc -c {} +)",
       "Bash(git rm:*)",
-      "Bash(pkill -f \"streamlit run\")"
+      "Bash(pkill -f \"streamlit run\")",
+      "Bash(kill -9 10234)",
+      "Bash(taskkill /F /PID 26452 /PID 28440 /PID 34656 /PID 32336)",
+      "Bash(find . -maxdepth 3 -name *.jpg -o -name *.png)",
+      "Bash(xargs kill:*)",
+      "Bash(cmd /c \"netstat -ano | findstr :8000\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 28440\"\" /FO LIST\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 34656\"\" /FO LIST\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 26452\"\" /FO LIST\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 32336\"\" /FO LIST\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 28440\"\" /FO CSV\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 34656\"\" /FO CSV\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 26452\"\" /FO CSV\")",
+      "Bash(cmd /c \"tasklist /FI \"\"PID eq 32336\"\" /FO CSV\")",
+      "Bash(powershell -Command \"Get-Process -Id 28440,34656,26452,32336 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CPU,WorkingSet\")",
+      "Bash(powershell -Command \"Get-Process -Id 32336, 34656, 26452, 28440 | Select-Object Id, ProcessName, MainWindowTitle\" 2>&1)"
     ]
   }
 }
