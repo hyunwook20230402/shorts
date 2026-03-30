@@ -75,16 +75,19 @@ async def run_step0_endpoint(request: StepRequest, background_tasks: BackgroundT
     task.video_path = None
 
   def _run_sync():
-    # 스레드에서 새로운 이벤트 루프 생성
+    logger.info(f'[BACKGROUND] Step 0 태스크 시작: task_id={request.task_id}')
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+      logger.info(f'[BACKGROUND] 이벤트 루프 생성 완료, run_step0 호출 중...')
       loop.run_until_complete(run_step0(request.task_id, image_path, request.use_cache))
+      logger.info(f'[BACKGROUND] run_step0 완료')
     except Exception as e:
-      logger.error(f'Step 0 오류: {e}')
+      logger.error(f'[BACKGROUND] Step 0 오류: {e}', exc_info=True)
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
     finally:
+      logger.info(f'[BACKGROUND] 이벤트 루프 종료')
       loop.close()
 
   background_tasks.add_task(_run_sync)

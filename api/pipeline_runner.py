@@ -47,16 +47,21 @@ async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> st
   task.status = StepStatusEnum.running
   task.status_message = 'OCR 처리 중...'
   task.updated_at = datetime.now()
+  logger.info(f'[Step 0] 시작: task_id={task_id}')
 
   try:
+    logger.info(f'[Step 0] OCR 함수 호출 중: {image_path}')
     result = await run_in_thread(extract_text_from_image, image_path, use_cache=use_cache)
+    logger.info(f'[Step 0] OCR 완료: {len(result)}자')
+
     task.ocr_text = result
     task.status = StepStatusEnum.completed
     task.status_message = 'OCR 처리 완료'
     task.updated_at = datetime.now()
+    logger.info(f'[Step 0] 상태 업데이트 완료: status={task.status}')
     return result
   except Exception as e:
-    logger.error(f'Step 0 오류: {e}')
+    logger.error(f'[Step 0] 오류: {e}', exc_info=True)
     task.error_log['step0'] = str(e)
     task.status = StepStatusEnum.failed
     task.status_message = f'Step 0 오류: {str(e)}'
