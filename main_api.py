@@ -15,14 +15,10 @@ load_dotenv()
 # 작업 디렉토리를 프로젝트 루트로 고정
 os.chdir(Path(__file__).parent)
 
-# 로깅 설정 (파일 + 콘솔)
+# 로깅 설정
 logging.basicConfig(
-  level=logging.DEBUG,
-  format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-  handlers=[
-    logging.FileHandler('/tmp/fastapi_debug.log', encoding='utf-8'),
-    logging.StreamHandler()
-  ]
+  level=logging.INFO,
+  format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
 # FastAPI 앱 생성 (UTF-8 JSON 응답)
