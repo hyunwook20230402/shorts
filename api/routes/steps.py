@@ -25,12 +25,10 @@ router = APIRouter()
 
 def _run_pipeline_sync(task_id: str, start_step: int = 0, end_step: int = 5):
   """파이프라인을 동기적으로 실행 (백그라운드 태스크용)"""
-  loop = asyncio.new_event_loop()
-  asyncio.set_event_loop(loop)
   try:
-    loop.run_until_complete(run_pipeline_async(task_id, start_step, end_step))
-  finally:
-    loop.close()
+    asyncio.run(run_pipeline_async(task_id, start_step, end_step))
+  except Exception as e:
+    logger.error(f'파이프라인 오류: {e}', exc_info=True)
 
 
 @router.post('/pipeline/run')
@@ -80,22 +78,17 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
 
   def _run_sync():
     logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-      loop.run_until_complete(run_step0(request.task_id, image_path, request.use_cache))
+      asyncio.run(run_step0(request.task_id, image_path, request.use_cache))
       logger.info('[EXECUTOR] Step 0 완료')
-      # 현재 task 상태 확인
       current_task = task_status_dict[request.task_id]
       logger.info(f'[EXECUTOR] 최종 확인: task.status={current_task.status}, ocr_len={len(current_task.ocr_text) if current_task.ocr_text else 0}')
     except Exception as e:
       logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
 
-  # ThreadPoolExecutor로 즉시 실행 (BackgroundTasks 대신)
+  # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
 
@@ -120,16 +113,14 @@ async def run_step1_endpoint(request: StepRequest) -> dict:
     task.video_path = None
 
   def _run_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # asyncio.run() 사용
     try:
-      loop.run_until_complete(run_step1(request.task_id, task.ocr_text, request.use_cache))
+      asyncio.run(run_step1(request.task_id, task.ocr_text, request.use_cache))
     except Exception as e:
       logger.error(f'Step 1 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
+    # asyncio.run()이 자동 정리
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
@@ -155,20 +146,18 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
     task.video_path = None
 
   def _run_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # asyncio.run() 사용
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
         image_prompts = nlp_data.get('image_prompts', [])
-      loop.run_until_complete(run_step2_with_progress(request.task_id, image_prompts, request.use_cache))
+      asyncio.run(run_step2_with_progress(request.task_id, image_prompts, request.use_cache))
     except Exception as e:
       logger.error(f'Step 2 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
+    # asyncio.run()이 자동 정리
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
@@ -193,19 +182,17 @@ async def run_step3_endpoint(request: StepRequest) -> dict:
     task.video_path = None
 
   def _run_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # asyncio.run() 사용
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         script_data = json.load(f).get('modern_script_data', [])
-      loop.run_until_complete(run_step3(request.task_id, script_data, request.use_cache))
+      asyncio.run(run_step3(request.task_id, script_data, request.use_cache))
     except Exception as e:
       logger.error(f'Step 3 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
+    # asyncio.run()이 자동 정리
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
@@ -232,19 +219,17 @@ async def run_step4_endpoint(request: StepRequest) -> dict:
     task.video_path = None
 
   def _run_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # asyncio.run() 사용
     try:
       import json
       with open(task.nlp_cache_path, 'r', encoding='utf-8') as f:
         script_data = json.load(f).get('modern_script_data', [])
-      loop.run_until_complete(run_step4(request.task_id, task.audio_paths, script_data))
+      asyncio.run(run_step4(request.task_id, task.audio_paths, script_data))
     except Exception as e:
       logger.error(f'Step 4 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
+    # asyncio.run()이 자동 정리
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
@@ -263,16 +248,14 @@ async def run_step5_endpoint(request: StepRequest) -> dict:
     raise HTTPException(status_code=400, detail='자막이 없습니다. Step 4를 먼저 실행하세요')
 
   def _run_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # asyncio.run() 사용
     try:
-      loop.run_until_complete(run_step5(request.task_id, task.image_paths, task.audio_paths, task.subtitle_path))
+      asyncio.run(run_step5(request.task_id, task.image_paths, task.audio_paths, task.subtitle_path))
     except Exception as e:
       logger.error(f'Step 5 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
-    finally:
-      loop.close()
+    # asyncio.run()이 자동 정리
 
   # ThreadPoolExecutor로 즉시 실행
   _executor.submit(_run_sync)
