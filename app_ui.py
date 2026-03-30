@@ -1,10 +1,15 @@
 import json
 import logging
+import os
 import requests
 import streamlit as st
 import time
 from pathlib import Path
 from PIL import Image
+from dotenv import load_dotenv
+
+# 환경변수 로드
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +24,9 @@ st.set_page_config(
 
 # API 기본 설정
 if 'api_base' not in st.session_state:
-  st.session_state.api_base = 'http://127.0.0.1:8000/api/v1'
+  api_host = os.environ.get('API_HOST', '127.0.0.1')
+  api_port = os.environ.get('API_PORT', '8000')
+  st.session_state.api_base = f'http://{api_host}:{api_port}/api/v1'
 
 if 'task_id' not in st.session_state:
   st.session_state.task_id = None

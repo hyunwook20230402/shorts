@@ -2,10 +2,14 @@ import logging
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import upload, tasks, steps, files
+
+# 환경변수 로드
+load_dotenv()
 
 # 작업 디렉토리를 프로젝트 루트로 고정
 os.chdir(Path(__file__).parent)
@@ -51,9 +55,10 @@ async def health_check() -> dict:
 
 if __name__ == '__main__':
   import uvicorn
+  api_port = int(os.environ.get('API_PORT', '8000'))
   uvicorn.run(
     app,
     host='0.0.0.0',
-    port=8000,
+    port=api_port,
     log_level='info'
   )
