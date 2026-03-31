@@ -1,8 +1,8 @@
 # 코드 스타일 규칙
 
 - 들여쓰기 : 스페이스 2칸
-- 변수명 : camelCase 사용
-- 함수명 : 동사로 시작( 예 : getUserData, handleClick)
+- 변수명 : snake_case 사용 (세부 규칙은 `naming_conventions.md` 참조)
+- 함수명 : 동사로 시작 (예 : `extract_text`, `generate_audio`)
 - 한글 주석 사용
 - **타입 힌팅 (Type Hinting):** Python 3.10+ 문법을 활용하여 모든 함수의 매개변수와 반환값에 타입 힌트를 필수로 명시하세요.
 - **단일 책임 원칙 (SRP):** 하나의 함수는 오직 한 가지 역할만 수행하도록 모듈화하세요.

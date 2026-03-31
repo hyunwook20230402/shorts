@@ -2,18 +2,15 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      
       "Read(//c/Users/user/workspaces/shorts/**)",
       "Read(//c/Users/user/Desktop/**)",
       "Read(//c/ComfyUI/**)",
       "Read(//d/ComfyUI/**)",
-
       "WebFetch(domain:api.ncloud-docs.com)",
       "WebFetch(domain:guide.ncloud-docs.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:www.ncloud-forums.com)",
       "WebFetch(domain:127.0.0.1)",
-
       "Bash(claude mcp:*)",
       "Bash(python *)",
       "Bash(python3 *)",
@@ -21,12 +18,10 @@
       "Bash(uv *)",
       "Bash(pip *)",
       "Bash(git *)",
-      
       "Bash(curl *)",
       "Bash(ffprobe *)",
       "Bash(ffmpeg *)",
       "Bash(magick *)",
-      
       "Bash(find *)",
       "Bash(grep *)",
       "Bash(rm *)",
@@ -39,7 +34,6 @@
       "Bash(echo *)",
       "Bash(chcp *)",
       "Bash(where *)",
-      
       "Bash(taskkill *)",
       "Bash(tasklist *)",
       "Bash(netstat *)",
@@ -48,7 +42,8 @@
       "Bash(wmic *)",
       "Bash(pkill *)",
       "Bash(kill *)",
-      "Bash(xargs *)"
+      "Bash(xargs *)",
+      "Skill(update-config)"
     ]
   }
 }

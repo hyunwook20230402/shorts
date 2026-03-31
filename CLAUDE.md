@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 고전시가 원문 이미지 → 수묵화 스타일 동적 동영상 쇼츠 자동 생성 파이프라인 **(v2 — Dynamic Clip Generator)**.
 
-**현재 상태:** Step 0~1 정상 (OCR → NLP), Step 2~5 v2 파이프라인 구현 완료 (ElevenLabs TTS + AnimateDiff).
+**현재 상태:** Step 0~5 전체 구현 완료 (ElevenLabs TTS + AnimateDiff + 타임스탬프 자막).
 
 ## 기술 스택 (v2)
 
@@ -95,12 +95,17 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 - `step4_clip.py` — Step 4 AnimateDiff 클립 생성 (ComfyUI API)
 - `step5_video.py` — Step 5 자막 burn-in + 최종 병합
 
-## 참고 자료
+## 참고 자료 (rules/)
 
-- **v2 교훈:** `.claude/rules/bug_fixes_and_lessons.md` (Section 4~6: 타임스탐프, VRAM, 호환성)
-- **코드 스타일:** `.claude/rules/code-style.md`, `naming_conventions.md`, `error_handling_logging.md`, `git-rules.md`
-- **보안:** `.claude/rules/Security_Configuration.md` (하드코딩 금지, .env 사용)
+| 파일 | 핵심 내용 |
+|------|----------|
+| `bug_fixes_and_lessons.md` | v2 교훈: 타임스탬프 오프셋, VRAM 청크, 캐시 호환성 |
+| `code-style.md` | 들여쓰기 2칸, snake_case, 타입힌팅, SRP, 디스크 캐싱 |
+| `naming_conventions.md` | 엄격한 snake_case, 함수명 동사 시작, FastAPI `/api/v1/` 접두사 |
+| `error_handling_logging.md` | 3회 재시도 + 지수 백오프, logging 모듈, 에러 시 Notion 동기화 |
+| `git-rules.md` | 한글 커밋 메시지, feature/fix 브랜치, 커밋 전 ruff check |
+| `Security_Configuration.md` | 하드코딩 금지, `.env` + pydantic-settings |
 
 ---
 
-**마지막 업데이트:** 2026-03-31 (PRD v2 구현 완료 — ElevenLabs + AnimateDiff + 동적 스케줄링)
+**마지막 업데이트:** 2026-04-01 (문서 정비 — rules/ 참조 표 개선, 현재 상태 문구 업데이트)
