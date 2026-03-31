@@ -10,10 +10,10 @@ from typing import Callable
 from api.models import TaskStatus, StepStatusEnum
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
-from audio_generator import generate_all_audio as elevenlabs_generate_all
-from dynamic_scheduler import build_frame_schedules
-from clip_generator import generate_all_clips
-from video_processor import compose_final_video
+from step2_tts import generate_all_audio as elevenlabs_generate_all
+from step3_scheduler import build_frame_schedules
+from step4_clip import generate_all_clips
+from step5_video import compose_final_video
 
 logger = logging.getLogger(__name__)
 

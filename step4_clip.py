@@ -428,11 +428,18 @@ def animate_with_ken_burns(
   fps = ANIMATEDIFF_FPS
   total_frames = int(duration * fps)
 
-  # 씬 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용
+  # 씬 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.2 범위, 느린 속도)
+  # ffmpeg zoompan: 프레임당 선형 변화 (전체 영상의 1/3 시간에만 줌 진행)
+  zoom_range = 0.2  # 1.0 → 1.2 범위
+  zoom_duration_frames = max(total_frames // 3, 1)  # 전체 시간의 1/3 동안만 줌
+  zoom_step = round(zoom_range / zoom_duration_frames, 6)  # 프레임당 zoom 변화량
+
   if scene_index % 2 == 0:
-    zoom_expr = "'if(lte(zoom,1.0),1.5,max(1.001,zoom-0.0015))'"
+    # 짝수: 1.0에서 1.2로 선형 줌인 (처음 1/3만 변화)
+    zoom_expr = f"'min(1.2,zoom+{zoom_step})'"
   else:
-    zoom_expr = "'if(gte(zoom,1.5),1.0,min(1.499,zoom+0.0015))'"
+    # 홀수: 1.2에서 1.0으로 선형 줌아웃 (첫 프레임에서 1.2로 초기화, 처음 1/3만 변화)
+    zoom_expr = f"'if(eq(on,1),1.2,max(1.0,zoom-{zoom_step}))'"
 
   still_path_fwd = str(still_path).replace('\\', '/')
   clip_path_fwd = str(clip_path).replace('\\', '/')
@@ -558,8 +565,10 @@ def generate_all_clips(
         # Step 4-A: 정지 이미지 생성
         still_path = generate_still_image(scene_schedule, scene_index, schedule_hash, use_cache)
         still_paths.append(still_path)
-        # Step 4-B: Ken Burns 클립 생성
-        clip_path = animate_with_ken_burns(still_path, scene_index, schedule_hash, I2V_DURATION, use_cache)
+        # Step 4-B: Ken Burns 클립 생성 (Step 3의 total_frames 기반으로 duration 계산)
+        total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
+        duration = total_frames / ANIMATEDIFF_FPS
+        clip_path = animate_with_ken_burns(still_path, scene_index, schedule_hash, duration, use_cache)
       else:
         # 레거시 T2V 모드
         clip_path = _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)

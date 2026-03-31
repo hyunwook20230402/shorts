@@ -158,7 +158,14 @@
       "Bash(rm -rf /c/Users/user/workspaces/shorts/cache/step5/*)",
       "Bash(ffprobe -v error -show_format -show_streams /c/Users/user/workspaces/shorts/cache/step5/*.mp4)",
       "Bash(du -h /c/Users/user/workspaces/shorts/cache/step5/*.mp4)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find . -name .env* -o -name *env*.example)",
+      "Bash(find C:/Users/user/ComfyUI/models/loras -type f -name *.safetensors)",
+      "Bash(find C:/Users/user/workspaces/shorts/cache -name *nlp* -type f)",
+      "Bash(find C:/Users/user/workspaces/shorts/cache -type f -name *.json -o -name *.txt)",
+      "Bash(find /c/Users/user/workspaces/shorts -name .env -o -name .env.*)",
+      "Bash(for d:*)",
+      "Read(//c/Users/user/workspaces/shorts/cache/**)"
     ]
   }
 }

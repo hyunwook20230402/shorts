@@ -306,6 +306,16 @@ def generate_audio_with_alignment(
   return mp3_path, alignment_path
 
 
+def clean_tts_text(text: str) -> str:
+  """TTS 전달 전 구두점 제거 (마침표, 쉼표, 물결 등 음성 불필요 기호)"""
+  import re
+  # 음성으로 읽힐 필요 없는 구두점 제거
+  cleaned = re.sub(r'[.,，。、·~～!！?？;；:："""\'\'()\[\]{}]', ' ', text)
+  # 연속 공백 정리
+  cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+  return cleaned
+
+
 def generate_all_audio(
   script_data: list[dict],
   use_cache: bool = True
@@ -323,9 +333,15 @@ def generate_all_audio(
       logger.warning(f'Scene {idx}: modern_text가 없습니다')
       continue
 
+    # 구두점 제거 후 TTS에 전달
+    cleaned_text = clean_tts_text(text_content)
+    if not cleaned_text:
+      logger.warning(f'Scene {idx}: 구두점 제거 후 텍스트가 없습니다')
+      continue
+
     try:
       mp3_path, alignment_path = generate_audio_with_alignment(
-        text_content,
+        cleaned_text,
         idx,
         use_cache=use_cache
       )

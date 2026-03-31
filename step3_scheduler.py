@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 ANIMATEDIFF_FPS = int(os.getenv('ANIMATEDIFF_FPS', '10'))
 CACHE_DIR = Path('cache/step3')
-COMMON_KEYWORDS = 'ink painting, traditional korean paper texture, guofeng style'
+COMMON_KEYWORDS = 'cute character illustration, soft watercolor, gentle art style, illustration style, character design'
 NEGATIVE_PROMPT = (
-    'worst quality, low quality, blurry, western style, anime, disfigured, '
-    'text, signature, watermark, writing, calligraphy, letters, chinese characters, '
-    'inscription, seal, stamp, characters, glyphs'
+    'worst quality, low quality, blurry, ink painting, chinese characters, '
+    'text, signature, watermark, writing, calligraphy, letters, '
+    'inscription, seal, stamp, characters, glyphs, monochrome, grayscale'
 )
 
 
@@ -84,16 +84,17 @@ def generate_visual_prompt(
 
 배경: {background}
 감정: {emotion}
-나레이션: {narration}
+나레이션 (매우 중요): {narration}
 텍스트: {sentence_text}
 
 요청:
-1. 영문으로 간결하게 작성 (50자 이내)
-2. 수묵화/국풍 스타일 강조
-3. 구체적인 이미지 요소 포함
-4. 감정/배경과 일치하는 장면 설명
+1. 나레이션의 감정과 상황을 최대한 충실하게 반영 (200~300자)
+2. 수묵화 + 국풍 스타일 강조 (ink wash, traditional korean, guofeng 포함)
+3. 귀여운 캐릭터 일러스트 스타일 명시 (cute character illustration, soft watercolor)
+4. 구체적인 캐릭터, 감정, 동작, 배경 요소 포함
+5. 씬의 분위기와 나레이션의 심리 상태를 시각적으로 표현
 
-예시: "ancient scholar by moonlit stream, ink painting, traditional korean landscape"
+예시: "In a misty village during late Joseon, a weary scholar sits in shadow, suspicion flickering in his eyes as wine glass glints with amber light; artistic style: ink wash painting with cute character illustration, soft watercolor, traditional korean aesthetic, guofeng style"
 """
 
   try:
