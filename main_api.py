@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+
+# notebook 폴더를 Python import 경로에 추가 (step*.py 파일들 위치)
+sys.path.insert(0, str(Path(__file__).parent / 'notebook'))
 
 from api.routes import upload, tasks, steps, files
 

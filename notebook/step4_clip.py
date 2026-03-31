@@ -50,16 +50,14 @@ REFERENCE_IMAGE_PATH2 = os.getenv('REFERENCE_IMAGE_PATH2', '')  # 2번째 참고
 MAX_RETRIES = 3
 
 
-def get_cache_path(schedule_hash: str, scene_index: int) -> Path:
+def get_cache_path(poem_dir: Path, scene_index: int) -> Path:
   """Step 4-B 클립 캐시 경로 생성"""
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
-  return CACHE_DIR / f'{schedule_hash}_{scene_index:02d}_clip.mp4'
+  return poem_dir / f'step4_scene{scene_index:02d}_clip.mp4'
 
 
-def get_still_cache_path(schedule_hash: str, scene_index: int) -> Path:
+def get_still_cache_path(poem_dir: Path, scene_index: int) -> Path:
   """Step 4-A 정지 이미지 캐시 경로 생성"""
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
-  return CACHE_DIR / f'{schedule_hash}_{scene_index:02d}_still.png'
+  return poem_dir / f'step4_scene{scene_index:02d}_still.png'
 
 
 def cmd_check() -> bool:
@@ -609,7 +607,7 @@ def download_generated_video(output_prefix: str) -> Optional[Path]:
 def generate_still_image(
   scene_schedule: dict,
   scene_index: int,
-  schedule_hash: str,
+  poem_dir: Path,
   use_cache: bool = True,
   use_ipadapter: bool = False,
   ref_image2: str | None = None
@@ -623,7 +621,7 @@ def generate_still_image(
 
   반환: PNG 파일 경로
   """
-  still_path = get_still_cache_path(schedule_hash, scene_index)
+  still_path = get_still_cache_path(poem_dir, scene_index)
 
   if use_cache and still_path.exists():
     logger.info(f'캐시된 정지 이미지 사용: {still_path}')
@@ -663,7 +661,7 @@ def generate_still_image(
 def animate_with_ken_burns(
   still_path: str,
   scene_index: int,
-  schedule_hash: str,
+  poem_dir: Path,
   duration: float = I2V_DURATION,
   use_cache: bool = True
 ) -> str:
@@ -671,7 +669,7 @@ def animate_with_ken_burns(
   Step 4-B: ffmpeg zoompan 필터로 Ken Burns 효과 클립 생성
   반환: MP4 파일 경로
   """
-  clip_path = get_cache_path(schedule_hash, scene_index)
+  clip_path = get_cache_path(poem_dir, scene_index)
 
   if use_cache and clip_path.exists():
     logger.info(f'캐시된 클립 사용: {clip_path}')
@@ -732,14 +730,14 @@ def animate_with_ken_burns(
 def _generate_clip_t2v(
   scene_schedule: dict,
   scene_index: int,
-  schedule_hash: str,
+  poem_dir: Path,
   use_cache: bool = True
 ) -> str:
   """
   레거시 T2V 모드: AnimateDiff로 직접 클립 생성 (KEN_BURNS_MODE=false)
   반환: 클립 파일 경로
   """
-  clip_path = get_cache_path(schedule_hash, scene_index)
+  clip_path = get_cache_path(poem_dir, scene_index)
 
   if use_cache and clip_path.exists():
     logger.info(f'캐시된 클립 사용: {clip_path}')
@@ -791,6 +789,7 @@ def generate_clip(
 
 def generate_all_clips(
   frame_schedule_path: str,
+  poem_dir: Path,
   use_cache: bool = True
 ) -> tuple[list[str], list[str]]:
   """
@@ -812,9 +811,6 @@ def generate_all_clips(
     raise
 
   scene_schedules = schedule_data.get('scene_schedules', [])
-  schedule_hash = hashlib.md5(
-    json.dumps(schedule_data, sort_keys=True, ensure_ascii=False).encode()
-  ).hexdigest()[:8]
 
   # IP-Adapter 참조 이미지 자동 생성 (필요한 경우)
   use_ipadapter = False
@@ -849,16 +845,16 @@ def generate_all_clips(
       if KEN_BURNS_MODE:
         # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
         still_path = generate_still_image(
-          scene_schedule, scene_index, schedule_hash, use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
+          scene_schedule, scene_index, poem_dir, use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
         )
         still_paths.append(still_path)
         # Step 4-B: Ken Burns 클립 생성 (Step 3의 total_frames 기반으로 duration 계산)
         total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
         duration = total_frames / ANIMATEDIFF_FPS
-        clip_path = animate_with_ken_burns(still_path, scene_index, schedule_hash, duration, use_cache)
+        clip_path = animate_with_ken_burns(still_path, scene_index, poem_dir, duration, use_cache)
       else:
         # 레거시 T2V 모드
-        clip_path = _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)
+        clip_path = _generate_clip_t2v(scene_schedule, scene_index, poem_dir, use_cache)
       clip_paths.append(clip_path)
     except Exception as e:
       logger.error(f'Scene {scene_index} 클립 생성 실패: {e}')

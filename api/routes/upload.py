@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import uuid
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File
 from api.models import UploadResponse
 from api.pipeline_runner import task_status_dict, _create_task_status
+from api.poem_registry import PoemRegistry
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -15,7 +17,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post('/upload', response_model=UploadResponse)
 async def upload_image(file: UploadFile = File(...)) -> UploadResponse:
-  """이미지 업로드 및 task_id 발급"""
+  """이미지 업로드 및 task_id, poem_id 발급"""
   try:
     # task_id 생성
     task_id = str(uuid.uuid4())
@@ -28,14 +30,21 @@ async def upload_image(file: UploadFile = File(...)) -> UploadResponse:
 
     logger.info(f'파일 업로드: {file_path}')
 
+    # 이미지 해시 계산 및 poem_id 부여/조회
+    image_hash = hashlib.sha256(contents).hexdigest()
+    poem_id = PoemRegistry().find_or_create(image_hash, file.filename)
+    logger.info(f'poem_id 부여: {poem_id}')
+
     # 작업 상태 생성
     task_status = _create_task_status(task_id)
     task_status.uploaded_image_path = str(file_path)
+    task_status.poem_id = poem_id
     task_status_dict[task_id] = task_status
 
     return UploadResponse(
       task_id=task_id,
       image_path=str(file_path),
+      poem_id=poem_id,
       status='uploaded'
     )
 

@@ -21,6 +21,9 @@ class TaskStatus(BaseModel):
   created_at: datetime
   updated_at: datetime
 
+  # 시 단위 관리 (v2)
+  poem_id: str | None = None  # "poem_01", "poem_02" 등
+
   # 각 Step 결과 경로
   uploaded_image_path: str | None = None
   ocr_text: str | None = None
@@ -39,6 +42,7 @@ class UploadResponse(BaseModel):
   """이미지 업로드 응답"""
   task_id: str
   image_path: str
+  poem_id: str  # 부여된 시 번호
   status: str = 'uploaded'
 
 

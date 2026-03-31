@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.models import TaskStatus, StepStatusEnum
+from api.poem_registry import PoemRegistry
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
 from step2_tts import generate_all_audio as elevenlabs_generate_all
@@ -95,6 +96,15 @@ def _create_task_status(task_id: str) -> TaskStatus:
   )
 
 
+def _get_poem_dir(task: TaskStatus) -> Path:
+  """task의 poem_id로부터 캐시 폴더 경로 도출"""
+  if not task.poem_id:
+    raise ValueError(f'poem_id 없음: {task.task_id} — 이미지를 다시 업로드하세요')
+  poem_dir = PoemRegistry().get_poem_dir(task.poem_id)
+  poem_dir.mkdir(parents=True, exist_ok=True)
+  return poem_dir
+
+
 async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> str:
   """Step 0: OCR"""
   task = task_status_dict[task_id]
@@ -103,12 +113,13 @@ async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> st
   task.status_message = 'OCR 처리 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
-  logger.info(f'[Step 0] 시작: task_id={task_id}')
+  logger.info(f'[Step 0] 시작: task_id={task_id}, poem_id={task.poem_id}')
 
   try:
+    poem_dir = _get_poem_dir(task)
     logger.info(f'[Step 0] OCR 함수 호출 중: {image_path}')
     # 동기 함수를 직접 호출 (스레드풀 사용 안 함 - 이벤트 루프 데드락 방지)
-    result = extract_text_from_image(image_path, use_cache=use_cache)
+    result = extract_text_from_image(image_path, poem_dir=poem_dir, use_cache=use_cache)
     logger.info(f'[Step 0] OCR 완료: {len(result)}자')
 
     task = task_status_dict[task_id]
@@ -140,12 +151,14 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
   task_status_dict[task_id] = task
 
   try:
+    poem_dir = _get_poem_dir(task)
+
     # 동기 함수를 직접 호출
-    script_data, image_prompts = process_nlp(ocr_text, task_id, use_cache)
+    script_data, image_prompts = process_nlp(ocr_text, task_id, poem_dir=poem_dir, use_cache=use_cache)
 
     # NLP 결과 캐시 경로 저장 (step1_nlp의 get_cache_path 함수 사용)
     from step1_nlp import get_cache_path
-    nlp_path = get_cache_path(ocr_text)
+    nlp_path = get_cache_path(poem_dir)
 
     # 파일 존재 검증
     if not nlp_path.exists():
@@ -179,7 +192,8 @@ async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool
   task_status_dict[task_id] = task
 
   try:
-    audio_paths, alignment_paths = elevenlabs_generate_all(script_data, use_cache=use_cache)
+    poem_dir = _get_poem_dir(task)
+    audio_paths, alignment_paths = elevenlabs_generate_all(script_data, poem_dir=poem_dir, use_cache=use_cache)
 
     task = task_status_dict[task_id]
     task.audio_paths = audio_paths
@@ -215,7 +229,13 @@ async def run_step3_schedule(
   task_status_dict[task_id] = task
 
   try:
-    frame_schedule_path = build_frame_schedules(script_data, alignment_paths, use_cache=use_cache)
+    poem_dir = _get_poem_dir(task)
+    frame_schedule_path = build_frame_schedules(
+      script_data,
+      alignment_paths,
+      poem_dir,
+      use_cache=use_cache
+    )
 
     task = task_status_dict[task_id]
     task.frame_schedule_path = frame_schedule_path
@@ -245,8 +265,13 @@ async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: boo
   task_status_dict[task_id] = task
 
   try:
+    poem_dir = _get_poem_dir(task)
     # generate_all_clips()는 이제 (clip_paths, still_paths) 튜플 반환
-    video_clip_paths, still_image_paths = generate_all_clips(frame_schedule_path, use_cache=use_cache)
+    video_clip_paths, still_image_paths = generate_all_clips(
+      frame_schedule_path,
+      poem_dir,
+      use_cache=use_cache
+    )
 
     task = task_status_dict[task_id]
     task.still_image_paths = still_image_paths
@@ -282,10 +307,12 @@ async def run_step5_merge(
   task_status_dict[task_id] = task
 
   try:
+    poem_dir = _get_poem_dir(task)
     video_path = compose_final_video(
       video_clip_paths,
       audio_paths,
       alignment_paths,
+      poem_dir,
       use_cache=True
     )
 

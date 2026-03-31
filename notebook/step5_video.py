@@ -36,10 +36,9 @@ SUBTITLE_COLOR = 'white'
 SUBTITLE_BG_COLOR = (0, 0, 0, 200)  # RGBA: 반투명 검은색
 
 
-def get_cache_path(schedule_hash: str) -> Path:
+def get_cache_path(poem_dir: Path) -> Path:
   """캐시 경로 생성"""
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
-  return CACHE_DIR / f'{schedule_hash}_shorts.mp4'
+  return poem_dir / 'step5_shorts.mp4'
 
 
 def get_audio_duration(audio_path: str) -> float:
@@ -330,6 +329,7 @@ def compose_final_video(
   video_clip_paths: list[str],
   audio_paths: list[str],
   alignment_paths: list[str],
+  poem_dir: Path,
   use_cache: bool = True
 ) -> str:
   """
@@ -341,16 +341,7 @@ def compose_final_video(
 
   반환: 최종 영상 파일 경로
   """
-  # 캐시 키 생성
-  cache_key = hashlib.md5(
-    json.dumps({
-      'clips': sorted(video_clip_paths),
-      'audio': sorted(audio_paths),
-      'alignment': sorted(alignment_paths)
-    }, sort_keys=True).encode()
-  ).hexdigest()[:8]
-
-  output_path = get_cache_path(cache_key)
+  output_path = get_cache_path(poem_dir)
 
   # 캐시 확인
   if use_cache and output_path.exists():

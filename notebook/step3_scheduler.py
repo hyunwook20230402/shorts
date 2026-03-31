@@ -36,10 +36,9 @@ NEGATIVE_PROMPT = (
 )
 
 
-def get_cache_path(script_data_hash: str) -> Path:
+def get_cache_path(poem_dir: Path) -> Path:
   """캐시 경로 생성"""
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
-  return CACHE_DIR / f'{script_data_hash}_schedule.json'
+  return poem_dir / 'step3_schedule.json'
 
 
 def load_schedule_from_cache(schedule_path: Path) -> Optional[dict]:
@@ -186,6 +185,7 @@ def build_prompt_schedule_for_scene(
 def build_frame_schedules(
   script_data: list[dict],
   alignment_paths: list[str],
+  poem_dir: Path,
   use_cache: bool = True
 ) -> str:
   """
@@ -195,22 +195,7 @@ def build_frame_schedules(
   if len(script_data) != len(alignment_paths):
     raise ValueError(f'script_data({len(script_data)}) != alignment_paths({len(alignment_paths)})')
 
-  # 캐시 키 생성 (script_data + alignment 내용 + FPS 기반)
-  alignment_contents = []
-  for ap in alignment_paths:
-    try:
-      with open(ap, 'r', encoding='utf-8') as f:
-        alignment_contents.append(json.load(f).get('total_duration', 0))
-    except Exception:
-      alignment_contents.append(0)
-
-  cache_key = json.dumps({
-    'script': script_data,
-    'durations': alignment_contents,
-    'fps': ANIMATEDIFF_FPS
-  }, sort_keys=True, ensure_ascii=False)
-  script_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
-  schedule_path = get_cache_path(script_hash)
+  schedule_path = get_cache_path(poem_dir)
 
   # 캐시 확인
   if use_cache and schedule_path.exists():

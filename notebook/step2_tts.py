@@ -31,11 +31,9 @@ else:
   logger.info(f'ELEVENLABS_API_KEY loaded: {ELEVENLABS_API_KEY[:20]}...')
 
 
-def get_cache_path(text: str, idx: int, suffix: str) -> Path:
-  """캐시 경로 생성 (MD5 기반)"""
-  cache_key = hashlib.md5(text.encode()).hexdigest()[:8]
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
-  return CACHE_DIR / f'{cache_key}_{idx:02d}{suffix}'
+def get_cache_path(poem_dir: Path, idx: int, suffix: str) -> Path:
+  """캐시 경로 생성 (poem_id 기반)"""
+  return poem_dir / f'step2_scene{idx:02d}{suffix}'
 
 
 def load_alignment_from_cache(alignment_path: Path) -> Optional[dict]:
@@ -347,6 +345,7 @@ def clean_tts_text(text: str) -> str:
 
 def generate_all_audio(
   script_data: list[dict],
+  poem_dir: Path,
   use_cache: bool = True
 ) -> tuple[list[str], list[str]]:
   """
