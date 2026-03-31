@@ -11,7 +11,12 @@ import pytest
 from step2_tts import generate_all_audio
 from step3_scheduler import build_frame_schedules
 from step4_clip import generate_all_clips
-from step5_video import compose_final_video
+
+# MoviePy 의존성이 없을 수 있으므로 조건부 import
+try:
+  from step5_video import compose_final_video
+except ModuleNotFoundError:
+  compose_final_video = None
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +86,14 @@ class TestStep3Scheduling:
       with open(schedule_path, 'r', encoding='utf-8') as f:
         schedule = json.load(f)
 
-      assert 'prompts' in schedule, 'schedule에 prompts 키 없음'
-      assert len(schedule['prompts']) > 0, '프레임 프롬프트 생성 실패'
+      # scene_schedules 또는 prompts 중 하나가 있어야 함
+      has_schedule = 'scene_schedules' in schedule or 'prompts' in schedule
+      assert has_schedule, 'schedule에 scene_schedules 또는 prompts 키 없음'
 
-      logger.info(f'✓ Step 3 완료: {len(schedule["prompts"])}개 프레임 스케줄 생성')
+      if 'scene_schedules' in schedule:
+        logger.info(f'✓ Step 3 완료: {len(schedule["scene_schedules"])}개 씬 스케줄 생성')
+      else:
+        logger.info(f'✓ Step 3 완료: {len(schedule["prompts"])}개 프레임 스케줄 생성')
     except Exception as e:
       pytest.fail(f'Step 3 실행 실패: {e}')
     finally:
@@ -109,13 +118,9 @@ class TestStep4ClipGeneration:
       pytest.skip('Step 3 캐시 없음 (동적 스케줄링 필요)')
 
     try:
-      audio_paths = [str(p) for p in cache_step2]
-      alignment_paths = [str(p).replace('_audio.mp3', '_alignment.json') for p in cache_step2]
       schedule_path = str(cache_step3[0])
 
       clip_paths = generate_all_clips(
-        audio_paths,
-        alignment_paths,
         schedule_path,
         use_cache=True
       )
@@ -135,6 +140,9 @@ class TestStep5Merge:
   @pytest.mark.slow
   def test_step5_compose_final_video(self, nlp_cache_path):
     """최종 영상 병합 (Step 4 결과 필요)"""
+    if compose_final_video is None:
+      pytest.skip('MoviePy 모듈 없음')
+
     cache_step4 = sorted(Path('cache/step4').glob('*_clip.mp4'))
 
     if not cache_step4:

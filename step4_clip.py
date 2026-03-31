@@ -40,6 +40,12 @@ STILL_IMAGE_CFG = float(os.getenv('STILL_IMAGE_CFG', '7.5'))
 KEN_BURNS_MODE = os.getenv('KEN_BURNS_MODE', 'true').lower() == 'true'
 I2V_DURATION = float(os.getenv('I2V_DURATION', '3.0'))
 
+# IP-Adapter 관련 환경변수
+IPADAPTER_MODEL = os.getenv('IPADAPTER_MODEL', 'ip-adapter_sd15.bin')
+IPADAPTER_WEIGHT = float(os.getenv('IPADAPTER_WEIGHT', '0.7'))
+CLIP_VISION_MODEL = os.getenv('CLIP_VISION_MODEL', 'clip_vision_h14.safetensors')
+REFERENCE_IMAGE_PATH = os.getenv('REFERENCE_IMAGE_PATH', 'cache/reference/character.png')
+
 MAX_RETRIES = 3
 
 
@@ -71,10 +77,32 @@ def cmd_check() -> bool:
     return False
 
 
+def upload_reference_image_to_comfyui() -> str:
+  """참조 이미지를 ComfyUI input 폴더에 업로드하고 파일명 반환"""
+  ref_path = Path(REFERENCE_IMAGE_PATH)
+  if not ref_path.exists():
+    raise FileNotFoundError(f'참조 이미지 없음: {ref_path}')
+
+  dest_path = COMFYUI_INPUT_DIR / 'reference_character.png'
+  dest_path.parent.mkdir(parents=True, exist_ok=True)
+  shutil.copy2(str(ref_path), str(dest_path))
+  logger.info(f'참조 이미지 복사: {ref_path} → {dest_path}')
+  return 'reference_character.png'
+
+
 def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
   """
-  Step 4-A: 고품질 정지 이미지 생성 워크플로우
-  batch_size=1, steps=30, cfg=7.5
+  Step 4-A: 고품질 정지 이미지 생성 워크플로우 (기본 파이프라인)
+
+  노드 구성:
+  1: CheckpointLoaderSimple
+  2: LoraLoader (국풍 LoRA)
+  3: CLIPTextEncode (positive)
+  4: CLIPTextEncode (negative)
+  5: EmptyLatentImage
+  6: KSampler
+  7: VAEDecode
+  8: SaveImage
   """
   return {
     '1': {
@@ -295,7 +323,8 @@ def download_generated_still(prompt_id: str) -> Optional[Path]:
       return None
 
     outputs = history[prompt_id].get('outputs', {})
-    images = outputs.get('8', {}).get('images', [])  # 노드 '8' = SaveImage
+    # 노드 '8' = SaveImage (IP-Adapter 제거 후)
+    images = outputs.get('8', {}).get('images', [])
 
     if not images:
       logger.error('SaveImage 노드 출력 없음')
@@ -428,18 +457,16 @@ def animate_with_ken_burns(
   fps = ANIMATEDIFF_FPS
   total_frames = int(duration * fps)
 
-  # 씬 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.2 범위, 느린 속도)
-  # ffmpeg zoompan: 프레임당 선형 변화 (전체 영상의 1/3 시간에만 줌 진행)
-  zoom_range = 0.2  # 1.0 → 1.2 범위
-  zoom_duration_frames = max(total_frames // 3, 1)  # 전체 시간의 1/3 동안만 줌
-  zoom_step = round(zoom_range / zoom_duration_frames, 6)  # 프레임당 zoom 변화량
+  # 씬 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.1 범위, 전체 클립에 걸쳐 천천히)
+  zoom_range = 0.1  # 1.0 → 1.1 범위
+  zoom_step = round(zoom_range / max(total_frames, 1), 6)  # 전체 프레임에 걸쳐 균등 변화
 
   if scene_index % 2 == 0:
-    # 짝수: 1.0에서 1.2로 선형 줌인 (처음 1/3만 변화)
-    zoom_expr = f"'min(1.2,zoom+{zoom_step})'"
+    # 짝수: 1.0에서 1.1로 천천히 줌인
+    zoom_expr = f"'min(1.1,zoom+{zoom_step})'"
   else:
-    # 홀수: 1.2에서 1.0으로 선형 줌아웃 (첫 프레임에서 1.2로 초기화, 처음 1/3만 변화)
-    zoom_expr = f"'if(eq(on,1),1.2,max(1.0,zoom-{zoom_step}))'"
+    # 홀수: 1.1에서 1.0으로 천천히 줌아웃
+    zoom_expr = f"'if(eq(on,1),1.1,max(1.0,zoom-{zoom_step}))'"
 
   still_path_fwd = str(still_path).replace('\\', '/')
   clip_path_fwd = str(clip_path).replace('\\', '/')
@@ -529,7 +556,10 @@ def generate_clip(
   """
   if KEN_BURNS_MODE:
     still_path = generate_still_image(scene_schedule, scene_index, schedule_hash, use_cache)
-    return animate_with_ken_burns(still_path, scene_index, schedule_hash, I2V_DURATION, use_cache)
+    # Step 3의 total_frames 기반으로 duration 계산 (generate_all_clips와 일관성)
+    total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
+    duration = total_frames / ANIMATEDIFF_FPS
+    return animate_with_ken_burns(still_path, scene_index, schedule_hash, duration, use_cache)
   else:
     return _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)
 

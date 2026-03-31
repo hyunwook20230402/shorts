@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # 환경변수
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY', '')
-ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID', 'onwK4e9ZDvw9KNAVq4mQ')  # 기본값
+ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # 기본값
 ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1'
 CACHE_DIR = Path('cache/step2')
 MAX_RETRIES = 3

@@ -25,7 +25,10 @@ COMMON_KEYWORDS = 'cute character illustration, soft watercolor, gentle art styl
 NEGATIVE_PROMPT = (
     'worst quality, low quality, blurry, ink painting, chinese characters, '
     'text, signature, watermark, writing, calligraphy, letters, '
-    'inscription, seal, stamp, characters, glyphs, monochrome, grayscale'
+    'inscription, seal, stamp, characters, glyphs, monochrome, grayscale, '
+    'wine glass, beer glass, modern bottle, cocktail glass, western cup, '
+    'modern clothing, suit, tie, jeans, sneakers, western architecture, '
+    'modern furniture, television, phone, computer, car, electricity'
 )
 
 
@@ -80,7 +83,7 @@ def generate_visual_prompt(
   emotion = scene_data.get('emotion', 'serene')
   narration = scene_data.get('narration', '')[:100]  # 처음 100자만
 
-  prompt = f"""고전 한시의 장면을 영어로 시각화하는 프롬프트를 생성해주세요.
+  prompt = f"""고전 한시의 장면을 영어로 시각화하는 Stable Diffusion 프롬프트를 생성해주세요.
 
 배경: {background}
 감정: {emotion}
@@ -88,13 +91,19 @@ def generate_visual_prompt(
 텍스트: {sentence_text}
 
 요청:
-1. 나레이션의 감정과 상황을 최대한 충실하게 반영 (200~300자)
+1. 나레이션의 감정과 상황을 최대한 충실하게 반영 (150~200자)
 2. 수묵화 + 국풍 스타일 강조 (ink wash, traditional korean, guofeng 포함)
 3. 귀여운 캐릭터 일러스트 스타일 명시 (cute character illustration, soft watercolor)
 4. 구체적인 캐릭터, 감정, 동작, 배경 요소 포함
 5. 씬의 분위기와 나레이션의 심리 상태를 시각적으로 표현
 
-예시: "In a misty village during late Joseon, a weary scholar sits in shadow, suspicion flickering in his eyes as wine glass glints with amber light; artistic style: ink wash painting with cute character illustration, soft watercolor, traditional korean aesthetic, guofeng style"
+엄격한 제한 (반드시 지킬 것):
+- 조선시대 배경이므로 현대적 사물 절대 금지 (wine glass, beer, modern bottles, glass cups 등)
+- 술은 반드시 전통 도자기 잔(ceramic cup, porcelain cup, traditional korean cup)으로만 표현
+- 서양 의복, 서양 건축물 금지
+- 영어로만 작성, 따옴표 없이 프롬프트만 출력
+
+예시: "In a misty village during late Joseon, a weary scholar sits in shadow, suspicion flickering in his eyes as he holds a porcelain cup of soju; traditional korean pavilion in background; artistic style: ink wash painting with cute character illustration, soft watercolor, guofeng style"
 """
 
   try:
@@ -170,10 +179,21 @@ def build_frame_schedules(
   if len(script_data) != len(alignment_paths):
     raise ValueError(f'script_data({len(script_data)}) != alignment_paths({len(alignment_paths)})')
 
-  # 캐시 키 생성 (script_data 기반)
-  script_hash = hashlib.md5(
-    json.dumps(script_data, sort_keys=True, ensure_ascii=False).encode()
-  ).hexdigest()[:8]
+  # 캐시 키 생성 (script_data + alignment 내용 + FPS 기반)
+  alignment_contents = []
+  for ap in alignment_paths:
+    try:
+      with open(ap, 'r', encoding='utf-8') as f:
+        alignment_contents.append(json.load(f).get('total_duration', 0))
+    except Exception:
+      alignment_contents.append(0)
+
+  cache_key = json.dumps({
+    'script': script_data,
+    'durations': alignment_contents,
+    'fps': ANIMATEDIFF_FPS
+  }, sort_keys=True, ensure_ascii=False)
+  script_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
   schedule_path = get_cache_path(script_hash)
 
   # 캐시 확인
