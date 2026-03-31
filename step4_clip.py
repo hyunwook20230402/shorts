@@ -90,9 +90,24 @@ def upload_reference_image_to_comfyui() -> str:
   return 'reference_character.png'
 
 
+def check_ipadapter_available() -> bool:
+  """IP-Adapter 커스텀 노드 설치 여부 확인"""
+  try:
+    response = requests.get(f'{COMFYUI_HOST}/object_info/IPAdapterModelLoader', timeout=3)
+    available = response.status_code == 200
+    if available:
+      logger.info('✓ IP-Adapter 커스텀 노드 설치됨')
+    else:
+      logger.info('⚠ IP-Adapter 커스텀 노드 미설치 (기본 워크플로우 사용)')
+    return available
+  except Exception as e:
+    logger.warning(f'IP-Adapter 확인 실패: {e} (기본 워크플로우 사용)')
+    return False
+
+
 def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
   """
-  Step 4-A: 고품질 정지 이미지 생성 워크플로우 (기본 파이프라인)
+  Step 4-A: 고품질 정지 이미지 생성 워크플로우 (기본 파이프라인, 8노드)
 
   노드 구성:
   1: CheckpointLoaderSimple
@@ -153,6 +168,105 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
     '8': {
       'class_type': 'SaveImage',
       'inputs': {'images': ['7', 0], 'filename_prefix': 'shorts_still'}
+    }
+  }
+
+
+def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str) -> dict:
+  """
+  Step 4-A: IP-Adapter 기반 캐릭터 일관성 정지 이미지 생성 (12노드)
+
+  노드 구성:
+  1: CheckpointLoaderSimple  ← SD 1.5
+  2: LoraLoader              ← 국풍 LoRA
+  3: CLIPTextEncode (positive)
+  4: CLIPTextEncode (negative)
+  5: EmptyLatentImage        ← 512×912
+  6: CLIPVisionLoader        ← clip_vision_h14.safetensors
+  7: LoadImage               ← reference_character.png
+  8: IPAdapterModelLoader    ← ip-adapter_sd15.bin
+  9: IPAdapterAdvanced       ← weight=0.7, 참조 이미지 기반 조건부 생성
+  10: KSampler               ← IP-Adapter 적용된 모델
+  11: VAEDecode
+  12: SaveImage
+  """
+  return {
+    '1': {
+      'class_type': 'CheckpointLoaderSimple',
+      'inputs': {'ckpt_name': SD15_CHECKPOINT}
+    },
+    '2': {
+      'class_type': 'LoraLoader',
+      'inputs': {
+        'model': ['1', 0],
+        'clip': ['1', 1],
+        'lora_name': LORA_NAME,
+        'strength_model': LORA_STRENGTH,
+        'strength_clip': LORA_STRENGTH
+      }
+    },
+    '3': {
+      'class_type': 'CLIPTextEncode',
+      'inputs': {'clip': ['2', 1], 'text': prompt}
+    },
+    '4': {
+      'class_type': 'CLIPTextEncode',
+      'inputs': {'clip': ['2', 1], 'text': negative_prompt}
+    },
+    '5': {
+      'class_type': 'EmptyLatentImage',
+      'inputs': {'width': 512, 'height': 912, 'batch_size': 1}
+    },
+    '6': {
+      'class_type': 'CLIPVisionLoader',
+      'inputs': {'clip_name': CLIP_VISION_MODEL}
+    },
+    '7': {
+      'class_type': 'LoadImage',
+      'inputs': {'image': 'reference_character.png'}  # ComfyUI input 폴더에서 로드
+    },
+    '8': {
+      'class_type': 'IPAdapterModelLoader',
+      'inputs': {'ipadapter_file': IPADAPTER_MODEL}
+    },
+    '9': {
+      'class_type': 'IPAdapterAdvanced',
+      'inputs': {
+        'model': ['2', 0],
+        'ipadapter': ['8', 0],
+        'clip_vision': ['6', 0],
+        'image': ['7', 0],
+        'weight': IPADAPTER_WEIGHT,
+        'weight_type': 'linear',
+        'start_at': 0.0,
+        'end_at': 1.0,
+        'unfold_batch': False,
+        'combine_embeds': 'concat',
+        'embeds_scaling': 'V only'
+      }
+    },
+    '10': {
+      'class_type': 'KSampler',
+      'inputs': {
+        'model': ['9', 0],  # IP-Adapter 적용된 모델
+        'positive': ['3', 0],
+        'negative': ['4', 0],
+        'latent_image': ['5', 0],
+        'seed': 42,
+        'steps': STILL_IMAGE_STEPS,
+        'cfg': STILL_IMAGE_CFG,
+        'sampler_name': 'euler_ancestral',
+        'scheduler': 'karras',
+        'denoise': 1.0
+      }
+    },
+    '11': {
+      'class_type': 'VAEDecode',
+      'inputs': {'samples': ['10', 0], 'vae': ['1', 2]}
+    },
+    '12': {
+      'class_type': 'SaveImage',
+      'inputs': {'images': ['11', 0], 'filename_prefix': 'shorts_still'}
     }
   }
 
@@ -306,6 +420,52 @@ def poll_until_done(prompt_id: str, timeout: int = COMFYUI_MAX_WAIT) -> bool:
   return False
 
 
+def generate_reference_image(scene_schedule: dict) -> str:
+  """
+  첫 씬 기반으로 참조 캐릭터 이미지 생성 (IP-Adapter용)
+  기본 워크플로우(8노드)로 생성 후 cache/reference/character.png 저장
+
+  반환: 참조 이미지 경로 (ComfyUI input 폴더 기준)
+  """
+  # 씬의 첫 프롬프트 추출
+  prompt_schedule = scene_schedule.get('prompt_schedule', {})
+  if not prompt_schedule:
+    logger.error('프롬프트 스케줄 없음')
+    raise ValueError('참조 이미지 생성 실패: 프롬프트 없음')
+
+  first_prompt = prompt_schedule.get('0', 'cute character illustration, soft watercolor')
+  negative_prompt = scene_schedule.get('negative_prompt', '')
+
+  logger.info(f'참조 이미지 생성: {first_prompt[:100]}...')
+
+  # 기본 워크플로우로 생성 (IP-Adapter 미적용)
+  workflow = build_still_image_workflow(first_prompt, negative_prompt)
+
+  try:
+    prompt_id = submit_prompt_to_comfyui(workflow)
+    if not poll_until_done(prompt_id):
+      raise RuntimeError('ComfyUI 작업 실패')
+
+    png_path = download_generated_still(prompt_id)
+    if not png_path:
+      raise RuntimeError('PNG 다운로드 실패')
+
+    # cache/reference/ 디렉토리 생성
+    ref_dir = Path('cache/reference')
+    ref_dir.mkdir(parents=True, exist_ok=True)
+
+    # PNG를 reference/character.png로 복사
+    ref_path = ref_dir / 'character.png'
+    shutil.copy2(str(png_path), str(ref_path))
+    logger.info(f'✓ 참조 이미지 저장: {ref_path}')
+
+    return str(ref_path)
+
+  except Exception as e:
+    logger.error(f'참조 이미지 생성 실패: {e}')
+    raise
+
+
 def download_generated_still(prompt_id: str) -> Optional[Path]:
   """
   ComfyUI history API에서 생성된 정지 이미지 PNG 파일 추출
@@ -323,22 +483,22 @@ def download_generated_still(prompt_id: str) -> Optional[Path]:
       return None
 
     outputs = history[prompt_id].get('outputs', {})
-    # 노드 '8' = SaveImage (IP-Adapter 제거 후)
-    images = outputs.get('8', {}).get('images', [])
 
-    if not images:
-      logger.error('SaveImage 노드 출력 없음')
-      return None
+    # SaveImage 노드를 순회하여 첫 번째 이미지 찾기
+    # (기본 워크플로우: 노드 '8', IP-Adapter 워크플로우: 노드 '12')
+    for node_id in outputs:
+      node_output = outputs[node_id]
+      images = node_output.get('images', [])
+      if images:
+        filename = images[0]['filename']
+        png_path = COMFYUI_OUTPUT_DIR / filename
 
-    filename = images[0]['filename']
-    png_path = COMFYUI_OUTPUT_DIR / filename
+        if png_path.exists():
+          logger.info(f'정지 이미지 발견: {png_path}')
+          return png_path
 
-    if not png_path.exists():
-      logger.error(f'PNG 파일 없음: {png_path}')
-      return None
-
-    logger.info(f'정지 이미지 발견: {png_path}')
-    return png_path
+    logger.error('SaveImage 노드 출력 없음')
+    return None
 
   except Exception as e:
     logger.error(f'정지 이미지 다운로드 오류: {e}')
@@ -400,10 +560,15 @@ def generate_still_image(
   scene_schedule: dict,
   scene_index: int,
   schedule_hash: str,
-  use_cache: bool = True
+  use_cache: bool = True,
+  use_ipadapter: bool = False
 ) -> str:
   """
-  Step 4-A: ComfyUI로 정지 이미지 생성
+  Step 4-A: ComfyUI로 정지 이미지 생성 (IP-Adapter 옵션)
+
+  Args:
+    use_ipadapter: IP-Adapter 노드 사용 여부 (참조 이미지 필수)
+
   반환: PNG 파일 경로
   """
   still_path = get_still_cache_path(schedule_hash, scene_index)
@@ -418,7 +583,15 @@ def generate_still_image(
   negative_prompt = scene_schedule.get('negative_prompt', '')
   prompt = prompt_schedule.get('0', 'ancient korean landscape, ink painting')
 
-  workflow = build_still_image_workflow(prompt, negative_prompt)
+  # IP-Adapter 사용 여부 결정 (참조 이미지 + 노드 설치 여부)
+  if use_ipadapter and Path(REFERENCE_IMAGE_PATH).exists() and check_ipadapter_available():
+    logger.info(f'Scene {scene_index}: IP-Adapter 워크플로우 사용')
+    workflow = build_still_image_workflow_with_ipadapter(prompt, negative_prompt)
+  else:
+    if use_ipadapter:
+      logger.info(f'Scene {scene_index}: 기본 워크플로우로 폴백 (IP-Adapter 미사용)')
+    workflow = build_still_image_workflow(prompt, negative_prompt)
+
   prompt_id = submit_prompt_to_comfyui(workflow)
 
   if not poll_until_done(prompt_id):
@@ -570,6 +743,12 @@ def generate_all_clips(
 ) -> tuple[list[str], list[str]]:
   """
   전체 씬의 영상 클립 생성 (I2V 또는 T2V 모드)
+
+  IP-Adapter 자동 처리:
+  - 참조 이미지 없으면 씬0으로 자동 생성
+  - 참조 이미지를 ComfyUI input 폴더에 복사
+  - 각 씬에 IP-Adapter 워크플로우 적용
+
   반환: (clip_paths, still_image_paths)
   """
   # 스케줄 JSON 로드
@@ -585,6 +764,28 @@ def generate_all_clips(
     json.dumps(schedule_data, sort_keys=True, ensure_ascii=False).encode()
   ).hexdigest()[:8]
 
+  # IP-Adapter 참조 이미지 자동 생성 (필요한 경우)
+  use_ipadapter = False
+  if check_ipadapter_available():
+    if not Path(REFERENCE_IMAGE_PATH).exists():
+      try:
+        logger.info('참조 이미지 자동 생성 중...')
+        generate_reference_image(scene_schedules[0])
+        use_ipadapter = True
+      except Exception as e:
+        logger.warning(f'참조 이미지 생성 실패: {e} (기본 워크플로우 사용)')
+        use_ipadapter = False
+    else:
+      use_ipadapter = True
+
+    # 참조 이미지를 ComfyUI input 폴더에 복사
+    if use_ipadapter:
+      try:
+        upload_reference_image_to_comfyui()
+      except Exception as e:
+        logger.warning(f'참조 이미지 업로드 실패: {e}')
+        use_ipadapter = False
+
   clip_paths = []
   still_paths = []
 
@@ -592,8 +793,10 @@ def generate_all_clips(
     scene_index = scene_schedule.get('scene_index', 0)
     try:
       if KEN_BURNS_MODE:
-        # Step 4-A: 정지 이미지 생성
-        still_path = generate_still_image(scene_schedule, scene_index, schedule_hash, use_cache)
+        # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
+        still_path = generate_still_image(
+          scene_schedule, scene_index, schedule_hash, use_cache, use_ipadapter=use_ipadapter
+        )
         still_paths.append(still_path)
         # Step 4-B: Ken Burns 클립 생성 (Step 3의 total_frames 기반으로 duration 계산)
         total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
@@ -607,17 +810,61 @@ def generate_all_clips(
       logger.error(f'Scene {scene_index} 클립 생성 실패: {e}')
       raise
 
-  logger.info(f'전체 클립 생성 완료: {len(clip_paths)}개 씬 (I2V: {KEN_BURNS_MODE})')
+  logger.info(f'전체 클립 생성 완료: {len(clip_paths)}개 씬 (I2V: {KEN_BURNS_MODE}, IP-Adapter: {use_ipadapter})')
   return clip_paths, still_paths
 
 
 if __name__ == '__main__':
   logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+      logging.FileHandler('step4_clip.log', encoding='utf-8'),
+      logging.StreamHandler()
+    ]
   )
 
-  if cmd_check():
-    print('ComfyUI 환경 준비 완료')
-  else:
-    print('ComfyUI 연결 실패')
+  logger.info('=' * 70)
+  logger.info('Step 4: ComfyUI 클립 생성 테스트')
+  logger.info('=' * 70)
+
+  # 1. ComfyUI 환경 확인
+  if not cmd_check():
+    logger.error('✗ ComfyUI 연결 실패')
+    exit(1)
+
+  # 2. 최근 Step 3 스케줄 파일 탐색
+  schedule_files = sorted(Path('cache/step3').glob('*_schedule.json'))
+  if not schedule_files:
+    logger.error('✗ Step 3 스케줄 캐시 없음')
+    exit(1)
+
+  schedule_path = str(schedule_files[-1])
+  logger.info(f'사용할 스케줄: {schedule_path}')
+
+  # 3. IP-Adapter 확인
+  ipadapter_available = check_ipadapter_available()
+  logger.info(f'IP-Adapter: {"✓ 설치됨" if ipadapter_available else "⚠ 미설치"}')
+
+  # 4. Step 4 실행
+  try:
+    logger.info('\n클립 생성 실행 중...')
+    clip_paths, still_paths = generate_all_clips(schedule_path, use_cache=True)
+
+    logger.info(f'\n✓ 클립 생성 완료: {len(clip_paths)}개')
+    for i, (clip, still) in enumerate(zip(clip_paths, still_paths)):
+      logger.info(f'\nScene {i}:')
+      logger.info(f'  Still: {Path(still).name}')
+      logger.info(f'  Clip: {Path(clip).name}')
+      if Path(clip).exists():
+        size_mb = Path(clip).stat().st_size / (1024 * 1024)
+        logger.info(f'  크기: {size_mb:.1f}MB')
+
+    logger.info('\n' + '=' * 70)
+    logger.info('✓ Step 4 테스트 완료')
+    logger.info('=' * 70)
+    exit(0)
+
+  except Exception as e:
+    logger.error(f'\n✗ Step 4 실패: {e}', exc_info=True)
+    exit(1)
