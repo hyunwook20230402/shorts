@@ -168,7 +168,24 @@
       "Read(//c/Users/user/workspaces/shorts/cache/**)",
       "Bash(python -c \":*)",
       "Bash(rm -f test_full_pipeline.py test_step4_manual.py test_step5_compose.py)",
-      "Bash(rm -rf tests/)"
+      "Bash(rm -rf tests/)",
+      "Bash(pip show:*)",
+      "Bash(pip list:*)",
+      "Bash(tee /tmp/step2_test.log)",
+      "Bash(tee /tmp/step5_test.log)",
+      "Bash(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:nokey=1 cache/step5/1fa0eee7_shorts.mp4)",
+      "Bash(find C:Usersuserworkspacesshorts -name 신충* -o -name *원가*)",
+      "Bash(rm -rf \"C:\\\\Users\\\\user\\\\workspaces\\\\shorts\\\\cache\\\\step4\"/*)",
+      "Bash(rm -rf \"C:\\\\Users\\\\user\\\\workspaces\\\\shorts\\\\cache\\\\step5\"/*)",
+      "Bash(chcp 65001)",
+      "Bash(find /c/Users/user/workspaces/shorts/cache/step* -type f)",
+      "Bash(powershell -Command \"curl -s 'http://127.0.0.1:8188/system_stats' | ConvertFrom-Json | Select-Object -Property cpu_percent, ram_free\" 2>&1)",
+      "Bash(tee -a step4_run_b117572b.log)",
+      "Bash(ffprobe -v error -show_format -show_streams \"C:\\\\Users\\\\user\\\\workspaces\\\\shorts\\\\cache\\\\step4\\\\8a1ea3af_00_clip.mp4\")",
+      "Bash(for f:*)",
+      "Bash(do ffprobe:*)",
+      "Bash(tail -50 /c/Users/user/workspaces/shorts/cache/step4/*.log)",
+      "Bash(ffprobe -v error -show_entries format=duration,width,height -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 cache/step5/9f16cd57_shorts.mp4)"
     ]
   }
 }
