@@ -72,27 +72,49 @@ def make_subtitle_clip_for_sentence(
   video_height: int = OUTPUT_HEIGHT
 ) -> Optional[object]:
   """
-  문장 하나의 자막 클립 생성
+  문장 하나의 자막 클립 생성 (PIL 기반, ImageMagick 불필요)
   반환: TextClip or None
   """
   if not text or start_time >= end_time:
     return None
 
   try:
-    # 텍스트 클립 생성
-    txt_clip = TextClip(
-      txt=text,
-      fontsize=SUBTITLE_FONT_SIZE,
-      font=str(SUBTITLE_FONT_PATH),
-      color=SUBTITLE_COLOR,
-      method='caption',
-      size=(video_width - 100, None),  # 양측 여백 50px씩
-      align='center'
-    )
+    from PIL import Image, ImageDraw, ImageFont
+    import numpy as np
+    import tempfile
 
-    # 자막 위치: 화면 하단 (y=video_height-250)
+    # PIL로 텍스트 이미지 생성
+    temp_dir = Path(tempfile.gettempdir())
+    txt_img_path = temp_dir / f'subtitle_{int(start_time*1000)}.png'
+
+    # 텍스트 크기 계산 (대략적 추정)
+    font_size = SUBTITLE_FONT_SIZE
+    try:
+      font = ImageFont.truetype(str(SUBTITLE_FONT_PATH), font_size)
+    except:
+      font = ImageFont.load_default()
+
+    # 배경 이미지 생성 (투명 배경)
+    img_width = video_width - 100
+    img_height = font_size + 20
+    img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # 텍스트 중앙 정렬
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = (img_width - text_width) // 2
+    y = (img_height - text_height) // 2
+
+    # 텍스트 그리기 (흰색)
+    draw.text((x, y), text, font=font, fill=SUBTITLE_COLOR)
+    img.save(str(txt_img_path))
+
+    # MoviePy ImageClip으로 변환
+    from moviepy.editor import ImageClip
     duration = end_time - start_time
-    txt_clip = txt_clip.set_duration(duration).set_start(start_time)
+    txt_clip = ImageClip(str(txt_img_path)).set_duration(duration).set_start(start_time)
     txt_clip = txt_clip.set_position(('center', video_height - 250))
 
     logger.debug(f'자막 생성: "{text[:30]}" ({start_time:.2f}~{end_time:.2f}s, duration={duration:.2f}s)')
@@ -100,8 +122,6 @@ def make_subtitle_clip_for_sentence(
 
   except Exception as e:
     logger.warning(f'자막 클립 생성 실패: {text[:30]}, {e}')
-    import traceback
-    traceback.print_exc()
     return None
 
 
@@ -391,10 +411,79 @@ def cmd_check() -> bool:
 if __name__ == '__main__':
   logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+      logging.FileHandler('step5_video.log', encoding='utf-8'),
+      logging.StreamHandler()
+    ]
   )
 
-  if cmd_check():
-    print('영상 처리 환경 준비 완료')
-  else:
-    print('환경 확인 실패')
+  logger.info('=' * 70)
+  logger.info('Step 5: 최종 영상 합성 테스트')
+  logger.info('=' * 70)
+
+  # 1. 환경 확인
+  if not cmd_check():
+    logger.error('✗ 환경 확인 실패')
+    exit(1)
+
+  # 2. Step 4 클립 파일 탐색
+  clip_files = sorted(Path('cache/step4').glob('*_clip.mp4'))
+  if not clip_files:
+    logger.error('✗ Step 4 클립 캐시 없음')
+    exit(1)
+
+  # 최신 클립 그룹만 선택
+  clip_hashes = {}
+  for f in clip_files:
+    hash_part = f.stem.split('_')[0]
+    if hash_part not in clip_hashes:
+      clip_hashes[hash_part] = []
+    clip_hashes[hash_part].append((int(f.stem.split('_')[1]), str(f)))
+
+  latest_hash = max(clip_hashes.keys())
+  latest_clips = sorted(clip_hashes[latest_hash])
+  clip_paths = [p[1] for p in latest_clips]
+
+  logger.info(f'클립: {len(clip_paths)}개')
+
+  # 3. Step 2 오디오/alignment 파일 탐색
+  audio_files = sorted(Path('cache/step2').glob('*_audio.mp3'))
+  alignment_files = sorted(Path('cache/step2').glob('*_alignment.json'))
+
+  if not audio_files or not alignment_files:
+    logger.error('✗ Step 2 오디오/alignment 캐시 없음')
+    exit(1)
+
+  # 씬별로 해시가 다를 수 있으므로 인덱스 번호 기준으로 정렬
+  audio_paths = [str(f) for f in sorted(audio_files, key=lambda f: int(f.stem.split('_')[1]))]
+  alignment_paths = [str(f) for f in sorted(alignment_files, key=lambda f: int(f.stem.split('_')[1]))]
+
+  logger.info(f'오디오: {len(audio_paths)}개')
+  logger.info(f'Alignment: {len(alignment_paths)}개')
+
+  if not (len(clip_paths) == len(audio_paths) == len(alignment_paths)):
+    logger.error(f'✗ 씬 개수 불일치: clips={len(clip_paths)}, audio={len(audio_paths)}, align={len(alignment_paths)}')
+    exit(1)
+
+  # 4. Step 5 실행
+  try:
+    logger.info('\n최종 영상 합성 실행 중...')
+    output_path = compose_final_video(clip_paths, audio_paths, alignment_paths, use_cache=True)
+
+    if Path(output_path).exists():
+      size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+      logger.info(f'\n✓ 영상 합성 완료: {Path(output_path).name}')
+      logger.info(f'  파일 크기: {size_mb:.1f}MB')
+
+      logger.info('\n' + '=' * 70)
+      logger.info('✓ Step 5 테스트 완료')
+      logger.info('=' * 70)
+      exit(0)
+    else:
+      logger.error(f'✗ 출력 파일 없음: {output_path}')
+      exit(1)
+
+  except Exception as e:
+    logger.error(f'\n✗ Step 5 실패: {e}', exc_info=True)
+    exit(1)
