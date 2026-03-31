@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 ANIMATEDIFF_FPS = int(os.getenv('ANIMATEDIFF_FPS', '10'))
 CACHE_DIR = Path('cache/step3')
-COMMON_KEYWORDS = 'cute character illustration, soft watercolor, gentle art style, illustration style, character design'
+COMMON_KEYWORDS = (
+    'multiple characters, detailed scene composition, '
+    'cute character illustration, soft watercolor, guofeng style, '
+    'traditional korean ink wash, gentle art style, illustration style'
+)
 NEGATIVE_PROMPT = (
     'worst quality, low quality, blurry, ink painting, chinese characters, '
     'text, signature, watermark, writing, calligraphy, letters, '
@@ -70,7 +74,7 @@ def generate_visual_prompt(
 ) -> str:
   """
   LLM으로 영문 시각적 프롬프트 생성
-  입력: 씬 배경, 감정, 나레이션 일부 → 출력: 영문 프롬프트
+  입력: modern_text, 배경, 감정, 나레이션 전체 → 출력: 디테일한 영문 프롬프트
   """
   if not OPENAI_API_KEY:
     # API 키 없을 때 기본 프롬프트 생성
@@ -81,38 +85,50 @@ def generate_visual_prompt(
 
   background = scene_data.get('background', 'ancient korean landscape')
   emotion = scene_data.get('emotion', 'serene')
-  narration = scene_data.get('narration', '')[:100]  # 처음 100자만
+  modern_text = scene_data.get('modern_text', '')
+  narration = scene_data.get('narration', '')
 
-  prompt = f"""고전 한시의 장면을 영어로 시각화하는 Stable Diffusion 프롬프트를 생성해주세요.
+  system_prompt = (
+    'You are an expert Stable Diffusion prompt writer for traditional Korean art scenes. '
+    'Always output ONLY the English prompt, no explanations or markdown. '
+    'Requirements: '
+    '1. Include ALL characters mentioned in the scene (if horse+trader+inspector → show all 3). '
+    '2. Include ALL key objects (horse, fortress wall, liquor bottle, pipe, etc.) directly visible. '
+    '3. Describe specific actions and positions of each character. '
+    '4. Use 200-250 English words. '
+    '5. Style: ink wash painting, guofeng, traditional Korean art.'
+  )
+
+  user_prompt = f"""조선시대 고전 시가의 장면을 Stable Diffusion 프롬프트로 만들어주세요.
+
+현대어 번역 (핵심 — 장면의 모든 등장인물과 사물을 반드시 포함):
+{modern_text}
+
+나레이션 (화자의 심리):
+{narration}
 
 배경: {background}
 감정: {emotion}
-나레이션 (매우 중요): {narration}
-텍스트: {sentence_text}
 
-요청:
-1. 나레이션의 감정과 상황을 최대한 충실하게 반영 (150~200자)
-2. 수묵화 + 국풍 스타일 강조 (ink wash, traditional korean, guofeng 포함)
-3. 귀여운 캐릭터 일러스트 스타일 명시 (cute character illustration, soft watercolor)
-4. 구체적인 캐릭터, 감정, 동작, 배경 요소 포함
-5. 씬의 분위기와 나레이션의 심리 상태를 시각적으로 표현
+등장인물과 사물을 빠짐없이 시각화하세요:
+- 장면에 언급된 모든 인물 (예: 암행어사, 소주 장사) → 각자의 위치와 행동 명시
+- 장면에 언급된 사물 (예: 말, 성벽, 술병, 담뱃대) → 화면에 직접 포함
+- 배경 환경 (예: 성문, 설원, 안개 낀 산) → 구체적으로 묘사
 
-엄격한 제한 (반드시 지킬 것):
-- 조선시대 배경이므로 현대적 사물 절대 금지 (wine glass, beer, modern bottles, glass cups 등)
-- 술은 반드시 전통 도자기 잔(ceramic cup, porcelain cup, traditional korean cup)으로만 표현
-- 서양 의복, 서양 건축물 금지
-- 영어로만 작성, 따옴표 없이 프롬프트만 출력
-
-예시: "In a misty village during late Joseon, a weary scholar sits in shadow, suspicion flickering in his eyes as he holds a porcelain cup of soju; traditional korean pavilion in background; artistic style: ink wash painting with cute character illustration, soft watercolor, guofeng style"
-"""
+엄격 금지: 현대 사물, 서양 의복, 유리컵, wine glass, modern bottles
+술은 반드시: ceramic cup, porcelain jar, traditional korean vessel
+영어로만 출력, 따옴표 없이"""
 
   try:
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     response = client.chat.completions.create(
       model='gpt-4o-mini',
-      messages=[{'role': 'user', 'content': prompt}],
+      messages=[
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt}
+      ],
       temperature=0.7,
-      max_tokens=100,
+      max_tokens=350,
       timeout=10
     )
     visual_prompt = response.choices[0].message.content.strip()

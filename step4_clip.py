@@ -45,6 +45,7 @@ IPADAPTER_MODEL = os.getenv('IPADAPTER_MODEL', 'ip-adapter_sd15.bin')
 IPADAPTER_WEIGHT = float(os.getenv('IPADAPTER_WEIGHT', '0.7'))
 CLIP_VISION_MODEL = os.getenv('CLIP_VISION_MODEL', 'clip_vision_h14.safetensors')
 REFERENCE_IMAGE_PATH = os.getenv('REFERENCE_IMAGE_PATH', 'cache/reference/character.png')
+REFERENCE_IMAGE_PATH2 = os.getenv('REFERENCE_IMAGE_PATH2', '')  # 2번째 참고 이미지 (선택)
 
 MAX_RETRIES = 3
 
@@ -77,8 +78,8 @@ def cmd_check() -> bool:
     return False
 
 
-def upload_reference_image_to_comfyui() -> str:
-  """참조 이미지를 ComfyUI input 폴더에 업로드하고 파일명 반환"""
+def upload_reference_image_to_comfyui() -> tuple[str, str | None]:
+  """참조 이미지를 ComfyUI input 폴더에 업로드하고 파일명 반환 (1장 또는 2장)"""
   ref_path = Path(REFERENCE_IMAGE_PATH)
   if not ref_path.exists():
     raise FileNotFoundError(f'참조 이미지 없음: {ref_path}')
@@ -87,7 +88,18 @@ def upload_reference_image_to_comfyui() -> str:
   dest_path.parent.mkdir(parents=True, exist_ok=True)
   shutil.copy2(str(ref_path), str(dest_path))
   logger.info(f'참조 이미지 복사: {ref_path} → {dest_path}')
-  return 'reference_character.png'
+
+  # 2번째 참고 이미지 (선택)
+  ref2_filename = None
+  if REFERENCE_IMAGE_PATH2:
+    ref2_path = Path(REFERENCE_IMAGE_PATH2)
+    if ref2_path.exists():
+      dest2_path = COMFYUI_INPUT_DIR / 'reference_character2.png'
+      shutil.copy2(str(ref2_path), str(dest2_path))
+      ref2_filename = 'reference_character2.png'
+      logger.info(f'참조 이미지 2 복사: {ref2_path} → {dest2_path}')
+
+  return 'reference_character.png', ref2_filename
 
 
 def check_ipadapter_available() -> bool:
@@ -172,25 +184,33 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
   }
 
 
-def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str) -> dict:
+def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str, ref_image2: str | None = None) -> dict:
   """
-  Step 4-A: IP-Adapter 기반 캐릭터 일관성 정지 이미지 생성 (12노드)
+  Step 4-A: IP-Adapter 기반 캐릭터 일관성 정지 이미지 생성
 
-  노드 구성:
-  1: CheckpointLoaderSimple  ← SD 1.5
-  2: LoraLoader              ← 국풍 LoRA
+  1장 참고 이미지: 12노드
+  2장 참고 이미지: 15노드 (두 번째 IPAdapterAdvanced 추가)
+
+  노드 구성 (1장):
+  1: CheckpointLoaderSimple
+  2: LoraLoader
   3: CLIPTextEncode (positive)
   4: CLIPTextEncode (negative)
-  5: EmptyLatentImage        ← 512×912
-  6: CLIPVisionLoader        ← clip_vision_h14.safetensors
-  7: LoadImage               ← reference_character.png
-  8: IPAdapterModelLoader    ← ip-adapter_sd15.bin
-  9: IPAdapterAdvanced       ← weight=0.7, 참조 이미지 기반 조건부 생성
-  10: KSampler               ← IP-Adapter 적용된 모델
+  5: EmptyLatentImage
+  6: CLIPVisionLoader
+  7: LoadImage (참고이미지 1)
+  8: IPAdapterModelLoader
+  9: IPAdapterAdvanced (image1)
+  10: KSampler
   11: VAEDecode
   12: SaveImage
+
+  2장일 경우 추가:
+  13: LoadImage (참고이미지 2)
+  14: IPAdapterAdvanced (image2, model=['9', 0]에 체인)
+  (KSampler model 입력 = ['14', 0])
   """
-  return {
+  workflow = {
     '1': {
       'class_type': 'CheckpointLoaderSimple',
       'inputs': {'ckpt_name': SD15_CHECKPOINT}
@@ -223,7 +243,7 @@ def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str)
     },
     '7': {
       'class_type': 'LoadImage',
-      'inputs': {'image': 'reference_character.png'}  # ComfyUI input 폴더에서 로드
+      'inputs': {'image': 'reference_character.png'}
     },
     '8': {
       'class_type': 'IPAdapterModelLoader',
@@ -244,31 +264,61 @@ def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str)
         'combine_embeds': 'concat',
         'embeds_scaling': 'V only'
       }
-    },
-    '10': {
-      'class_type': 'KSampler',
-      'inputs': {
-        'model': ['9', 0],  # IP-Adapter 적용된 모델
-        'positive': ['3', 0],
-        'negative': ['4', 0],
-        'latent_image': ['5', 0],
-        'seed': 42,
-        'steps': STILL_IMAGE_STEPS,
-        'cfg': STILL_IMAGE_CFG,
-        'sampler_name': 'euler_ancestral',
-        'scheduler': 'karras',
-        'denoise': 1.0
-      }
-    },
-    '11': {
-      'class_type': 'VAEDecode',
-      'inputs': {'samples': ['10', 0], 'vae': ['1', 2]}
-    },
-    '12': {
-      'class_type': 'SaveImage',
-      'inputs': {'images': ['11', 0], 'filename_prefix': 'shorts_still'}
     }
   }
+
+  # 2번째 참고 이미지가 있으면 IPAdapterAdvanced 노드 추가
+  if ref_image2:
+    workflow['13'] = {
+      'class_type': 'LoadImage',
+      'inputs': {'image': ref_image2}
+    }
+    workflow['14'] = {
+      'class_type': 'IPAdapterAdvanced',
+      'inputs': {
+        'model': ['9', 0],  # ← 첫 번째 IPAdapter 출력에 체인
+        'ipadapter': ['8', 0],
+        'clip_vision': ['6', 0],
+        'image': ['13', 0],  # ← 두 번째 참고 이미지
+        'weight': IPADAPTER_WEIGHT,
+        'weight_type': 'linear',
+        'start_at': 0.0,
+        'end_at': 1.0,
+        'unfold_batch': False,
+        'combine_embeds': 'concat',
+        'embeds_scaling': 'V only'
+      }
+    }
+    # KSampler의 model을 IPAdapterAdvanced(14)에 연결
+    ksampler_model_input = ['14', 0]
+  else:
+    ksampler_model_input = ['9', 0]
+
+  workflow['10'] = {
+    'class_type': 'KSampler',
+    'inputs': {
+      'model': ksampler_model_input,
+      'positive': ['3', 0],
+      'negative': ['4', 0],
+      'latent_image': ['5', 0],
+      'seed': 42,
+      'steps': STILL_IMAGE_STEPS,
+      'cfg': STILL_IMAGE_CFG,
+      'sampler_name': 'euler_ancestral',
+      'scheduler': 'karras',
+      'denoise': 1.0
+    }
+  }
+  workflow['11'] = {
+    'class_type': 'VAEDecode',
+    'inputs': {'samples': ['10', 0], 'vae': ['1', 2]}
+  }
+  workflow['12'] = {
+    'class_type': 'SaveImage',
+    'inputs': {'images': ['11', 0], 'filename_prefix': 'shorts_still'}
+  }
+
+  return workflow
 
 
 def build_animatediff_workflow(
@@ -561,13 +611,15 @@ def generate_still_image(
   scene_index: int,
   schedule_hash: str,
   use_cache: bool = True,
-  use_ipadapter: bool = False
+  use_ipadapter: bool = False,
+  ref_image2: str | None = None
 ) -> str:
   """
   Step 4-A: ComfyUI로 정지 이미지 생성 (IP-Adapter 옵션)
 
   Args:
     use_ipadapter: IP-Adapter 노드 사용 여부 (참조 이미지 필수)
+    ref_image2: 두 번째 참고 이미지 파일명 (선택)
 
   반환: PNG 파일 경로
   """
@@ -585,8 +637,8 @@ def generate_still_image(
 
   # IP-Adapter 사용 여부 결정 (참조 이미지 + 노드 설치 여부)
   if use_ipadapter and Path(REFERENCE_IMAGE_PATH).exists() and check_ipadapter_available():
-    logger.info(f'Scene {scene_index}: IP-Adapter 워크플로우 사용')
-    workflow = build_still_image_workflow_with_ipadapter(prompt, negative_prompt)
+    logger.info(f'Scene {scene_index}: IP-Adapter 워크플로우 사용' + (f' (2장 참고 이미지)' if ref_image2 else ''))
+    workflow = build_still_image_workflow_with_ipadapter(prompt, negative_prompt, ref_image2)
   else:
     if use_ipadapter:
       logger.info(f'Scene {scene_index}: 기본 워크플로우로 폴백 (IP-Adapter 미사용)')
@@ -766,6 +818,7 @@ def generate_all_clips(
 
   # IP-Adapter 참조 이미지 자동 생성 (필요한 경우)
   use_ipadapter = False
+  ref_image2 = None
   if check_ipadapter_available():
     if not Path(REFERENCE_IMAGE_PATH).exists():
       try:
@@ -781,7 +834,8 @@ def generate_all_clips(
     # 참조 이미지를 ComfyUI input 폴더에 복사
     if use_ipadapter:
       try:
-        upload_reference_image_to_comfyui()
+        ref_image1, ref_image2 = upload_reference_image_to_comfyui()
+        logger.info(f'참조 이미지 업로드: {ref_image1}' + (f', {ref_image2}' if ref_image2 else ''))
       except Exception as e:
         logger.warning(f'참조 이미지 업로드 실패: {e}')
         use_ipadapter = False
@@ -795,7 +849,7 @@ def generate_all_clips(
       if KEN_BURNS_MODE:
         # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
         still_path = generate_still_image(
-          scene_schedule, scene_index, schedule_hash, use_cache, use_ipadapter=use_ipadapter
+          scene_schedule, scene_index, schedule_hash, use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
         )
         still_paths.append(still_path)
         # Step 4-B: Ken Burns 클립 생성 (Step 3의 total_frames 기반으로 duration 계산)
