@@ -213,17 +213,46 @@ def estimate_alignment_from_audio(
   단어/문장을 균등하게 분배하여 타임스탬프 생성
   (실제 음성 길이에 기반하지만 정확도는 떨어짐)
   """
-  import wave
+  # 실제 MP3 파일 길이 측정
+  total_duration = None
 
+  # 시도 1: mutagen (MP3 메타데이터 직접 읽음)
   try:
-    # 오디오 길이 조회
-    with wave.open(audio_path, 'rb') as wav_file:
-      frames = wav_file.getnframes()
-      rate = wav_file.getframerate()
-      total_duration = frames / rate
+    from mutagen.mp3 import MP3
+    audio_file = MP3(audio_path)
+    total_duration = audio_file.info.length
+    logger.info(f'mutagen으로 MP3 길이 측정: {total_duration:.2f}초')
+  except ImportError:
+    logger.warning('mutagen 패키지 미설치')
   except Exception as e:
-    logger.warning(f'오디오 길이 조회 실패: {e}, 텍스트 길이로 추정')
-    # 텍스트 길이로 추정 (대략 0.1초/글자)
+    logger.warning(f'mutagen 오디오 길이 조회 실패: {e}')
+
+  # 시도 2: moviepy AudioFileClip (이미 설치됨)
+  if total_duration is None:
+    try:
+      from moviepy.audio.io.AudioFileClip import AudioFileClip
+      audio_clip = AudioFileClip(audio_path)
+      total_duration = audio_clip.duration
+      audio_clip.close()
+      logger.info(f'moviepy로 MP3 길이 측정: {total_duration:.2f}초')
+    except Exception as e:
+      logger.warning(f'moviepy 오디오 길이 조회 실패: {e}')
+
+  # 시도 3: wave (WAV 파일용, MP3는 실패할 가능성 높음)
+  if total_duration is None:
+    try:
+      import wave
+      with wave.open(audio_path, 'rb') as wav_file:
+        frames = wav_file.getnframes()
+        rate = wav_file.getframerate()
+        total_duration = frames / rate
+        logger.info(f'wave으로 오디오 길이 측정: {total_duration:.2f}초')
+    except Exception as e:
+      logger.warning(f'wave 오디오 길이 조회 실패: {e}')
+
+  # 최후의 fallback: 텍스트 길이 추정
+  if total_duration is None:
+    logger.warning('모든 오디오 길이 측정 방법 실패, 텍스트 길이로 추정')
     total_duration = max(2.0, len(text) * 0.1)
 
   # 단어 분리
