@@ -51,13 +51,23 @@ MAX_RETRIES = 3
 
 
 def get_cache_path(poem_dir: Path, scene_index: int) -> Path:
-  """Step 4-B 클립 캐시 경로 생성"""
+  """Step 4-B 클립 캐시 경로 생성 (씬 단위, 레거시)"""
   return poem_dir / f'step4_scene{scene_index:02d}_clip.mp4'
 
 
 def get_still_cache_path(poem_dir: Path, scene_index: int) -> Path:
-  """Step 4-A 정지 이미지 캐시 경로 생성"""
+  """Step 4-A 정지 이미지 캐시 경로 생성 (씬 단위, 레거시)"""
   return poem_dir / f'step4_scene{scene_index:02d}_still.png'
+
+
+def get_sentence_still_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
+  """Step 4-A 정지 이미지 캐시 경로 생성 (문장 단위)"""
+  return poem_dir / f'step4_scene{scene_idx:02d}_sent{sent_idx:02d}_still.png'
+
+
+def get_sentence_clip_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
+  """Step 4-B 클립 캐시 경로 생성 (문장 단위)"""
+  return poem_dir / f'step4_scene{scene_idx:02d}_sent{sent_idx:02d}_clip.mp4'
 
 
 def cmd_check() -> bool:
@@ -605,33 +615,36 @@ def download_generated_video(output_prefix: str) -> Optional[Path]:
 
 
 def generate_still_image(
-  scene_schedule: dict,
-  scene_index: int,
+  image_prompt: str,
+  negative_prompt: str,
+  scene_idx: int,
+  sent_idx: int,
   poem_dir: Path,
   use_cache: bool = True,
   use_ipadapter: bool = False,
   ref_image2: str | None = None
 ) -> str:
   """
-  Step 4-A: ComfyUI로 정지 이미지 생성 (IP-Adapter 옵션)
+  Step 4-A: ComfyUI로 정지 이미지 생성 (문장 단위, IP-Adapter 옵션)
 
   Args:
+    image_prompt: 이미지 생성 프롬프트 문자열 (scene_schedule dict 대신 직접 전달)
+    negative_prompt: 부정 프롬프트
+    scene_idx, sent_idx: 씬/문장 인덱스
     use_ipadapter: IP-Adapter 노드 사용 여부 (참조 이미지 필수)
     ref_image2: 두 번째 참고 이미지 파일명 (선택)
 
   반환: PNG 파일 경로
   """
-  still_path = get_still_cache_path(poem_dir, scene_index)
+  still_path = get_sentence_still_path(poem_dir, scene_idx, sent_idx)
 
   if use_cache and still_path.exists():
     logger.info(f'캐시된 정지 이미지 사용: {still_path}')
     return str(still_path)
 
-  logger.info(f'Scene {scene_index} 정지 이미지 생성 중...')
+  logger.info(f'Scene {scene_idx} Sent {sent_idx} 정지 이미지 생성 중...')
 
-  prompt_schedule = scene_schedule.get('prompt_schedule', {})
-  negative_prompt = scene_schedule.get('negative_prompt', '')
-  prompt = prompt_schedule.get('0', 'ancient korean landscape, ink painting')
+  prompt = image_prompt if image_prompt else 'ancient korean landscape, ink painting'
 
   # IP-Adapter 사용 여부 결정 (참조 이미지 + 노드 설치 여부)
   if use_ipadapter and Path(REFERENCE_IMAGE_PATH).exists() and check_ipadapter_available():
@@ -660,31 +673,33 @@ def generate_still_image(
 
 def animate_with_ken_burns(
   still_path: str,
-  scene_index: int,
+  scene_idx: int,
+  sent_idx: int,
   poem_dir: Path,
   duration: float = I2V_DURATION,
   use_cache: bool = True
 ) -> str:
   """
-  Step 4-B: ffmpeg zoompan 필터로 Ken Burns 효과 클립 생성
+  Step 4-B: ffmpeg zoompan 필터로 Ken Burns 효과 클립 생성 (문장 단위)
   반환: MP4 파일 경로
   """
-  clip_path = get_cache_path(poem_dir, scene_index)
+  clip_path = get_sentence_clip_path(poem_dir, scene_idx, sent_idx)
 
   if use_cache and clip_path.exists():
     logger.info(f'캐시된 클립 사용: {clip_path}')
     return str(clip_path)
 
-  logger.info(f'Scene {scene_index} Ken Burns 클립 생성 중...')
+  logger.info(f'Scene {scene_idx} Sent {sent_idx} Ken Burns 클립 생성 중...')
 
   fps = ANIMATEDIFF_FPS
   total_frames = int(duration * fps)
 
-  # 씬 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.1 범위, 전체 클립에 걸쳐 천천히)
+  # 문장 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.1 범위, 전체 클립에 걸쳐 천천히)
+  alternate_idx = scene_idx * 100 + sent_idx  # 씬/문장 조합으로 홀짝 결정
   zoom_range = 0.1  # 1.0 → 1.1 범위
   zoom_step = round(zoom_range / max(total_frames, 1), 6)  # 전체 프레임에 걸쳐 균등 변화
 
-  if scene_index % 2 == 0:
+  if alternate_idx % 2 == 0:
     # 짝수: 1.0에서 1.1로 천천히 줌인
     zoom_expr = f"'min(1.1,zoom+{zoom_step})'"
   else:
@@ -715,7 +730,7 @@ def animate_with_ken_burns(
     clip_path_fwd
   ]
 
-  logger.info(f'ffmpeg Ken Burns: {" ".join(cmd)}')
+  logger.info(f'ffmpeg Ken Burns: Scene {scene_idx} Sent {sent_idx}')
   clip_path.parent.mkdir(parents=True, exist_ok=True)
   result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
@@ -724,7 +739,7 @@ def animate_with_ken_burns(
     return str(clip_path)
   else:
     logger.error(f'ffmpeg 오류: {result.stderr}')
-    raise RuntimeError(f'Scene {scene_index} Ken Burns 변환 실패: {result.stderr[:200]}')
+    raise RuntimeError(f'Scene {scene_idx} Sent {sent_idx} Ken Burns 변환 실패: {result.stderr[:200]}')
 
 
 def _generate_clip_t2v(
@@ -787,80 +802,107 @@ def generate_clip(
     return _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)
 
 
+def _setup_ipadapter(sentence_schedules: list[dict]) -> tuple[bool, str | None]:
+  """IP-Adapter 참조 이미지 초기화. 반환: (use_ipadapter, ref_image2)"""
+  use_ipadapter = False
+  ref_image2 = None
+
+  if not check_ipadapter_available():
+    return False, None
+
+  if not Path(REFERENCE_IMAGE_PATH).exists():
+    try:
+      logger.info('참조 이미지 자동 생성 중...')
+      # 씬 0의 첫 문장으로 자동 생성 (간단한 씬 데이터 구성)
+      scene_ctx = {
+        'emotion': sentence_schedules[0].get('emotion', 'serene') if sentence_schedules else 'serene',
+        'background': sentence_schedules[0].get('background', 'korean landscape') if sentence_schedules else 'korean landscape',
+        'image_prompt': sentence_schedules[0].get('image_prompt', '') if sentence_schedules else ''
+      }
+      generate_reference_image(scene_ctx)
+      use_ipadapter = True
+    except Exception as e:
+      logger.warning(f'참조 이미지 생성 실패: {e} (기본 워크플로우 사용)')
+      return False, None
+  else:
+    use_ipadapter = True
+
+  # 참조 이미지를 ComfyUI input 폴더에 복사
+  if use_ipadapter:
+    try:
+      ref_image1, ref_image2 = upload_reference_image_to_comfyui()
+      logger.info(f'참조 이미지 업로드: {ref_image1}' + (f', {ref_image2}' if ref_image2 else ''))
+    except Exception as e:
+      logger.warning(f'참조 이미지 업로드 실패: {e}')
+      return False, None
+
+  return use_ipadapter, ref_image2
+
+
 def generate_all_clips(
-  frame_schedule_path: str,
+  sentence_schedule_path: str,
   poem_dir: Path,
   use_cache: bool = True
 ) -> tuple[list[str], list[str]]:
   """
-  전체 씬의 영상 클립 생성 (I2V 또는 T2V 모드)
+  문장 단위 영상 클립 생성 (I2V Ken Burns 모드)
 
-  IP-Adapter 자동 처리:
-  - 참조 이미지 없으면 씬0으로 자동 생성
-  - 참조 이미지를 ComfyUI input 폴더에 복사
-  - 각 씬에 IP-Adapter 워크플로우 적용
+  입력: sentence_schedule_path (Step 3 문장 스케줄 JSON)
+  출력: (clip_paths, still_image_paths) - 문장 순서대로 flat list
 
-  반환: (clip_paths, still_image_paths)
+  IP-Adapter 캐릭터 일관성 처리:
+  - 참조 이미지 자동 생성 (필요한 경우)
+  - ComfyUI input 폴더에 복사
+  - 각 정지이미지 생성 시 적용
   """
   # 스케줄 JSON 로드
   try:
-    with open(frame_schedule_path, 'r', encoding='utf-8') as f:
+    with open(sentence_schedule_path, 'r', encoding='utf-8') as f:
       schedule_data = json.load(f)
   except Exception as e:
-    logger.error(f'스케줄 로드 실패: {frame_schedule_path}, {e}')
+    logger.error(f'문장 스케줄 로드 실패: {sentence_schedule_path}, {e}')
     raise
 
-  scene_schedules = schedule_data.get('scene_schedules', [])
+  sentence_schedules = schedule_data.get('sentence_schedules', [])
+  logger.info(f'문장 단위 클립 생성: {len(sentence_schedules)}개 문장')
 
-  # IP-Adapter 참조 이미지 자동 생성 (필요한 경우)
-  use_ipadapter = False
-  ref_image2 = None
-  if check_ipadapter_available():
-    if not Path(REFERENCE_IMAGE_PATH).exists():
-      try:
-        logger.info('참조 이미지 자동 생성 중...')
-        generate_reference_image(scene_schedules[0])
-        use_ipadapter = True
-      except Exception as e:
-        logger.warning(f'참조 이미지 생성 실패: {e} (기본 워크플로우 사용)')
-        use_ipadapter = False
-    else:
-      use_ipadapter = True
-
-    # 참조 이미지를 ComfyUI input 폴더에 복사
-    if use_ipadapter:
-      try:
-        ref_image1, ref_image2 = upload_reference_image_to_comfyui()
-        logger.info(f'참조 이미지 업로드: {ref_image1}' + (f', {ref_image2}' if ref_image2 else ''))
-      except Exception as e:
-        logger.warning(f'참조 이미지 업로드 실패: {e}')
-        use_ipadapter = False
+  # IP-Adapter 초기화
+  use_ipadapter, ref_image2 = _setup_ipadapter(sentence_schedules)
 
   clip_paths = []
   still_paths = []
 
-  for scene_schedule in scene_schedules:
-    scene_index = scene_schedule.get('scene_index', 0)
+  for entry in sentence_schedules:
+    scene_idx = entry.get('scene_index', 0)
+    sent_idx = entry.get('sent_index', 0)
+    image_prompt = entry.get('image_prompt', '')
+    negative_prompt = entry.get('negative_prompt', '')
+    duration = entry.get('duration', I2V_DURATION)
+
     try:
       if KEN_BURNS_MODE:
         # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
         still_path = generate_still_image(
-          scene_schedule, scene_index, poem_dir, use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
+          image_prompt, negative_prompt, scene_idx, sent_idx, poem_dir,
+          use_cache=use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
         )
         still_paths.append(still_path)
-        # Step 4-B: Ken Burns 클립 생성 (Step 3의 total_frames 기반으로 duration 계산)
-        total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
-        duration = total_frames / ANIMATEDIFF_FPS
-        clip_path = animate_with_ken_burns(still_path, scene_index, poem_dir, duration, use_cache)
+
+        # Step 4-B: Ken Burns 클립 생성 (duration 기반)
+        clip_path = animate_with_ken_burns(
+          still_path, scene_idx, sent_idx, poem_dir, duration=duration, use_cache=use_cache
+        )
+        clip_paths.append(clip_path)
       else:
-        # 레거시 T2V 모드
-        clip_path = _generate_clip_t2v(scene_schedule, scene_index, poem_dir, use_cache)
-      clip_paths.append(clip_path)
+        # T2V 레거시 모드 (현재 미지원)
+        logger.warning(f'Scene {scene_idx} Sent {sent_idx}: T2V 모드는 미지원')
+        raise RuntimeError('T2V 모드는 현재 지원하지 않습니다')
+
     except Exception as e:
-      logger.error(f'Scene {scene_index} 클립 생성 실패: {e}')
+      logger.error(f'Scene {scene_idx} Sent {sent_idx} 클립 생성 실패: {e}')
       raise
 
-  logger.info(f'전체 클립 생성 완료: {len(clip_paths)}개 씬 (I2V: {KEN_BURNS_MODE}, IP-Adapter: {use_ipadapter})')
+  logger.info(f'전체 클립 생성 완료: {len(clip_paths)}개 문장 (I2V Ken Burns, IP-Adapter: {use_ipadapter})')
   return clip_paths, still_paths
 
 

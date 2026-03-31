@@ -29,11 +29,17 @@ class TaskStatus(BaseModel):
   ocr_text: str | None = None
   nlp_cache_path: str | None = None
   image_paths: list[str] = []  # v2에서 미사용 (하위호환성 유지)
-  audio_paths: list[str] = []  # Step 2: ElevenLabs MP3 경로
-  tts_alignment_paths: list[str] = []  # Step 2: alignment JSON 경로 (신규)
-  frame_schedule_path: str | None = None  # Step 3: BatchPromptSchedule JSON 경로 (신규)
-  still_image_paths: list[str] = []  # Step 4-A: ComfyUI 정지 이미지 PNG 경로 (신규 I2V)
-  video_clip_paths: list[str] = []  # Step 4-B: Ken Burns MP4 클립 경로 (신규)
+  audio_paths: list[str] = []  # Step 2: ElevenLabs MP3 경로 (하위호환: 문장 단위 flat list)
+  tts_alignment_paths: list[str] = []  # Step 2: alignment JSON 경로 (하위호환: 문장 단위 flat list)
+  frame_schedule_path: str | None = None  # Step 3: 스케줄 JSON 경로
+
+  # 문장 단위 v3 신규 필드
+  sentence_audio_paths: list[list[str]] = []  # Step 2: [씬][문장] → MP3 경로
+  sentence_alignment_paths: list[list[str]] = []  # Step 2: [씬][문장] → alignment JSON 경로
+  sentence_schedule_path: str | None = None  # Step 3: 문장 단위 스케줄 JSON 경로
+
+  still_image_paths: list[str] = []  # Step 4-A: ComfyUI 정지 이미지 PNG 경로 (문장 단위 flat)
+  video_clip_paths: list[str] = []  # Step 4-B: Ken Burns MP4 클립 경로 (문장 단위 flat)
   subtitle_path: str | None = None  # v2에서 미사용 (타임스탬프 기반 교체)
   video_path: str | None = None
 

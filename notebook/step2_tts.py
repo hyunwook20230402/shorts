@@ -32,8 +32,18 @@ else:
 
 
 def get_cache_path(poem_dir: Path, idx: int, suffix: str) -> Path:
-  """캐시 경로 생성 (poem_id 기반)"""
+  """캐시 경로 생성 (poem_id 기반, 씬 단위)"""
   return poem_dir / f'step2_scene{idx:02d}{suffix}'
+
+
+def get_sentence_audio_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
+  """문장 단위 MP3 경로 생성"""
+  return poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
+
+
+def get_sentence_alignment_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
+  """문장 단위 alignment JSON 경로 생성"""
+  return poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
 
 
 def load_alignment_from_cache(alignment_path: Path) -> Optional[dict]:
@@ -333,6 +343,34 @@ def generate_audio_with_alignment(
   return mp3_path, alignment_path
 
 
+def get_audio_duration_from_mp3(mp3_path: Path) -> float:
+  """MP3 파일의 실제 재생 길이(초) 측정"""
+  # 시도 1: mutagen (MP3 메타데이터 직접 읽음)
+  try:
+    from mutagen.mp3 import MP3
+    audio_file = MP3(str(mp3_path))
+    duration = audio_file.info.length
+    logger.info(f'mutagen으로 MP3 길이 측정: {duration:.2f}초')
+    return duration
+  except Exception:
+    pass
+
+  # 시도 2: moviepy AudioFileClip (이미 설치됨)
+  try:
+    from moviepy.audio.io.AudioFileClip import AudioFileClip
+    clip = AudioFileClip(str(mp3_path))
+    duration = clip.duration
+    clip.close()
+    logger.info(f'moviepy로 MP3 길이 측정: {duration:.2f}초')
+    return duration
+  except Exception:
+    pass
+
+  # fallback: 텍스트 길이 추정
+  logger.warning('MP3 길이 측정 실패, fallback 사용')
+  return max(1.0, 1.0)
+
+
 def clean_tts_text(text: str) -> str:
   """TTS 전달 전 구두점 제거 (마침표, 쉼표, 물결 등 음성 불필요 기호)"""
   import re
@@ -343,44 +381,101 @@ def clean_tts_text(text: str) -> str:
   return cleaned
 
 
+def generate_sentence_audio(
+  sentence_text: str,
+  scene_idx: int,
+  sent_idx: int,
+  poem_dir: Path,
+  voice_id: str = ELEVENLABS_VOICE_ID,
+  use_cache: bool = True,
+) -> tuple[Path, Path]:
+  """
+  문장 단위 TTS 생성
+  반환: (mp3_path, alignment_path)
+  """
+  mp3_path = get_sentence_audio_path(poem_dir, scene_idx, sent_idx)
+  alignment_path = get_sentence_alignment_path(poem_dir, scene_idx, sent_idx)
+
+  if use_cache and mp3_path.exists() and alignment_path.exists():
+    logger.info(f'캐시된 문장 오디오 사용: {mp3_path}')
+    return mp3_path, alignment_path
+
+  cleaned = clean_tts_text(sentence_text)
+  if not cleaned:
+    logger.warning(f'Scene {scene_idx} Sent {sent_idx}: 구두점 제거 후 텍스트 없음')
+    cleaned = sentence_text
+
+  logger.info(f'ElevenLabs 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx}')
+  audio_bytes = call_elevenlabs_api(cleaned, voice_id)
+
+  mp3_path.parent.mkdir(parents=True, exist_ok=True)
+  mp3_path.write_bytes(audio_bytes)
+  logger.info(f'문장 MP3 저장: {mp3_path}')
+
+  # 실제 MP3 길이 측정
+  duration = get_audio_duration_from_mp3(mp3_path)
+
+  alignment = {
+    'scene_index': scene_idx,
+    'sent_index': sent_idx,
+    'text': sentence_text,
+    'duration': duration,
+    'audio_path': str(mp3_path),
+  }
+  alignment_path.write_text(
+    json.dumps(alignment, ensure_ascii=False, indent=2), encoding='utf-8'
+  )
+  logger.info(f'문장 alignment 저장: {alignment_path} ({duration:.2f}s)')
+
+  return mp3_path, alignment_path
+
+
 def generate_all_audio(
   script_data: list[dict],
   poem_dir: Path,
-  use_cache: bool = True
-) -> tuple[list[str], list[str]]:
+  use_cache: bool = True,
+) -> tuple[list[list[str]], list[list[str]]]:
   """
-  전체 씬의 오디오 생성
-  반환: (audio_paths, alignment_paths)
-  """
-  audio_paths = []
-  alignment_paths = []
+  모든 씬의 모든 문장에 대해 TTS 생성 (문장 단위)
 
-  for idx, scene in enumerate(script_data):
-    text_content = scene.get('modern_text', '')
-    if not text_content:
-      logger.warning(f'Scene {idx}: modern_text가 없습니다')
+  반환:
+    sentence_audio_paths: list[list[str]]   # [씬][문장] → MP3 경로
+    sentence_alignment_paths: list[list[str]]  # [씬][문장] → alignment JSON 경로
+  """
+  sentence_audio_paths = []
+  sentence_alignment_paths = []
+
+  for scene_idx, scene in enumerate(script_data):
+    sentences = scene.get('modern_sentences', [])
+    if not sentences:
+      # 하위호환: modern_sentences 없는 경우 modern_text에서 직접 분리
+      from step1_nlp import split_into_sentences
+      sentences = split_into_sentences(scene.get('modern_text', ''))
+
+    if not sentences:
+      logger.warning(f'Scene {scene_idx}: 문장이 없습니다')
+      sentence_audio_paths.append([])
+      sentence_alignment_paths.append([])
       continue
 
-    # 구두점 제거 후 TTS에 전달
-    cleaned_text = clean_tts_text(text_content)
-    if not cleaned_text:
-      logger.warning(f'Scene {idx}: 구두점 제거 후 텍스트가 없습니다')
-      continue
+    scene_audios, scene_alignments = [], []
+    for sent_idx, sentence_text in enumerate(sentences):
+      try:
+        mp3_path, align_path = generate_sentence_audio(
+          sentence_text, scene_idx, sent_idx, poem_dir,
+          use_cache=use_cache
+        )
+        scene_audios.append(str(mp3_path))
+        scene_alignments.append(str(align_path))
+      except Exception as e:
+        logger.error(f'Scene {scene_idx} Sent {sent_idx} 오디오 생성 실패: {e}')
+        raise
 
-    try:
-      mp3_path, alignment_path = generate_audio_with_alignment(
-        cleaned_text,
-        idx,
-        use_cache=use_cache
-      )
-      audio_paths.append(str(mp3_path))
-      alignment_paths.append(str(alignment_path))
-    except Exception as e:
-      logger.error(f'Scene {idx} 오디오 생성 실패: {e}')
-      raise
+    sentence_audio_paths.append(scene_audios)
+    sentence_alignment_paths.append(scene_alignments)
 
-  logger.info(f'전체 오디오 생성 완료: {len(audio_paths)}개 씬')
-  return audio_paths, alignment_paths
+  logger.info(f'전체 문장 오디오 생성 완료: {sum(len(s) for s in sentence_audio_paths)}개 문장')
+  return sentence_audio_paths, sentence_alignment_paths
 
 
 def cmd_check() -> bool:

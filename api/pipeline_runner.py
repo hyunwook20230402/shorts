@@ -11,8 +11,8 @@ from api.models import TaskStatus, StepStatusEnum
 from api.poem_registry import PoemRegistry
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
-from step2_tts import generate_all_audio as elevenlabs_generate_all
-from step3_scheduler import build_frame_schedules
+from step2_tts import generate_all_audio as elevenlabs_generate_all_v3
+from step3_scheduler import build_sentence_schedules
 from step4_clip import generate_all_clips
 from step5_video import compose_final_video
 
@@ -182,27 +182,34 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
     raise
 
 
-async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool = True) -> tuple[list[str], list[str]]:
-  """Step 2: ElevenLabs TTS → (audio_paths, alignment_paths)"""
+async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool = True) -> tuple[list[list[str]], list[list[str]]]:
+  """Step 2: 문장 단위 ElevenLabs TTS → (sentence_audio_paths, sentence_alignment_paths)"""
   task = task_status_dict[task_id]
   task.current_step = 2
   task.status = StepStatusEnum.running
-  task.status_message = 'ElevenLabs 음성 생성 중...'
+  task.status_message = '문장 단위 음성 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
     poem_dir = _get_poem_dir(task)
-    audio_paths, alignment_paths = elevenlabs_generate_all(script_data, poem_dir=poem_dir, use_cache=use_cache)
+    # 문장 단위 TTS: [씬][문장] 2차원 리스트 반환
+    sentence_audio_paths, sentence_alignment_paths = elevenlabs_generate_all_v3(
+      script_data, poem_dir=poem_dir, use_cache=use_cache
+    )
 
     task = task_status_dict[task_id]
-    task.audio_paths = audio_paths
-    task.tts_alignment_paths = alignment_paths
+    task.sentence_audio_paths = sentence_audio_paths
+    task.sentence_alignment_paths = sentence_alignment_paths
+    # 하위호환: flat list도 유지
+    task.audio_paths = [p for scene in sentence_audio_paths for p in scene]
+    task.tts_alignment_paths = [p for scene in sentence_alignment_paths for p in scene]
     task.status = StepStatusEnum.completed
-    task.status_message = f'음성 생성 완료 ({len(audio_paths)}개)'
+    total_sentences = sum(len(s) for s in sentence_audio_paths)
+    task.status_message = f'음성 생성 완료 ({total_sentences}개 문장)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return audio_paths, alignment_paths
+    return sentence_audio_paths, sentence_alignment_paths
   except Exception as e:
     logger.error(f'Step 2 오류: {e}')
     task = task_status_dict[task_id]
@@ -217,33 +224,36 @@ async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool
 async def run_step3_schedule(
   task_id: str,
   script_data: list[dict],
-  alignment_paths: list[str],
+  sentence_audio_paths: list[list[str]],
+  sentence_alignment_paths: list[list[str]],
   use_cache: bool = True
 ) -> str:
-  """Step 3: 동적 프레임 스케줄링 → frame_schedule_path"""
+  """Step 3: 문장 단위 스케줄 생성 → sentence_schedule_path"""
   task = task_status_dict[task_id]
   task.current_step = 3
   task.status = StepStatusEnum.running
-  task.status_message = '동적 프레임 스케줄 생성 중...'
+  task.status_message = '문장 단위 스케줄 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
     poem_dir = _get_poem_dir(task)
-    frame_schedule_path = build_frame_schedules(
+    sentence_schedule_path = build_sentence_schedules(
       script_data,
-      alignment_paths,
+      sentence_audio_paths,
+      sentence_alignment_paths,
       poem_dir,
       use_cache=use_cache
     )
 
     task = task_status_dict[task_id]
-    task.frame_schedule_path = frame_schedule_path
+    task.sentence_schedule_path = sentence_schedule_path
+    task.frame_schedule_path = sentence_schedule_path  # 하위호환
     task.status = StepStatusEnum.completed
-    task.status_message = '프레임 스케줄 생성 완료'
+    task.status_message = '문장 스케줄 생성 완료'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return frame_schedule_path
+    return sentence_schedule_path
   except Exception as e:
     logger.error(f'Step 3 오류: {e}')
     task = task_status_dict[task_id]
@@ -255,8 +265,8 @@ async def run_step3_schedule(
     raise
 
 
-async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: bool = True) -> list[str]:
-  """Step 4: I2V 영상 클립 생성 (Step 4-A: 정지 이미지 + Step 4-B: Ken Burns) → video_clip_paths"""
+async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: bool = True) -> list[str]:
+  """Step 4: 문장 단위 이미지/클립 생성 (Step 4-A: 정지 이미지 + Step 4-B: Ken Burns) → video_clip_paths"""
   task = task_status_dict[task_id]
   task.current_step = 4
   task.status = StepStatusEnum.running
@@ -268,7 +278,7 @@ async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: boo
     poem_dir = _get_poem_dir(task)
     # generate_all_clips()는 이제 (clip_paths, still_paths) 튜플 반환
     video_clip_paths, still_image_paths = generate_all_clips(
-      frame_schedule_path,
+      sentence_schedule_path,
       poem_dir,
       use_cache=use_cache
     )
@@ -277,7 +287,7 @@ async def run_step4_clips(task_id: str, frame_schedule_path: str, use_cache: boo
     task.still_image_paths = still_image_paths
     task.video_clip_paths = video_clip_paths
     task.status = StepStatusEnum.completed
-    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개, I2V Ken Burns 모드)'
+    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개 문장, I2V Ken Burns 모드)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
     return video_clip_paths
@@ -296,9 +306,9 @@ async def run_step5_merge(
   task_id: str,
   video_clip_paths: list[str],
   audio_paths: list[str],
-  alignment_paths: list[str]
+  sentence_schedule_path: str
 ) -> str:
-  """Step 5: Burn-in 자막 + 최종 병합 → final video_path"""
+  """Step 5: 문장 단위 클립 병합 + 자막 → final video_path"""
   task = task_status_dict[task_id]
   task.current_step = 5
   task.status = StepStatusEnum.running
@@ -311,7 +321,7 @@ async def run_step5_merge(
     video_path = compose_final_video(
       video_clip_paths,
       audio_paths,
-      alignment_paths,
+      sentence_schedule_path,
       poem_dir,
       use_cache=True
     )
@@ -354,28 +364,29 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
         nlp_data = json.load(f)
         script_data = nlp_data.get('modern_script_data', [])
 
-    # Step 2: ElevenLabs 음성 + 타임스탬프
+    # Step 2: 문장 단위 ElevenLabs 음성 + 타임스탬프
     if start_step <= 2 <= end_step:
-      audio_paths, alignment_paths = await run_step2_audio(task_id, script_data)
+      sentence_audio_paths, sentence_alignment_paths = await run_step2_audio(task_id, script_data)
     else:
-      audio_paths = task_status_dict[task_id].audio_paths
-      alignment_paths = task_status_dict[task_id].tts_alignment_paths
+      sentence_audio_paths = task_status_dict[task_id].sentence_audio_paths
+      sentence_alignment_paths = task_status_dict[task_id].sentence_alignment_paths
 
-    # Step 3: 동적 프레임 스케줄링
+    # Step 3: 문장 단위 스케줄 생성
     if start_step <= 3 <= end_step:
-      frame_schedule_path = await run_step3_schedule(task_id, script_data, alignment_paths)
+      sentence_schedule_path = await run_step3_schedule(task_id, script_data, sentence_audio_paths, sentence_alignment_paths)
     else:
-      frame_schedule_path = task_status_dict[task_id].frame_schedule_path
+      sentence_schedule_path = task_status_dict[task_id].sentence_schedule_path
 
-    # Step 4: AnimateDiff 비디오 클립
+    # Step 4: 문장 단위 이미지/클립 생성
     if start_step <= 4 <= end_step:
-      video_clip_paths = await run_step4_clips(task_id, frame_schedule_path)
+      video_clip_paths = await run_step4_clips(task_id, sentence_schedule_path)
     else:
       video_clip_paths = task_status_dict[task_id].video_clip_paths
 
-    # Step 5: Burn-in + 최종 병합
+    # Step 5: 문장 단위 클립 병합 + 자막
     if start_step <= 5 <= end_step:
-      await run_step5_merge(task_id, video_clip_paths, audio_paths, alignment_paths)
+      audio_flat = task_status_dict[task_id].audio_paths  # flat list
+      await run_step5_merge(task_id, video_clip_paths, audio_flat, sentence_schedule_path)
 
     # 완료
     task = task_status_dict[task_id]

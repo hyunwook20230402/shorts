@@ -234,6 +234,84 @@ def build_frame_schedules(
   return str(schedule_path)
 
 
+def build_sentence_schedules(
+  script_data: list[dict],
+  sentence_audio_paths: list[list[str]],
+  sentence_alignment_paths: list[list[str]],
+  poem_dir: Path,
+  use_cache: bool = True,
+) -> str:
+  """
+  문장 단위 스케줄 생성
+
+  입력:
+    script_data: modern_sentences, sentence_image_prompts 포함
+    sentence_audio_paths: [씬][문장] MP3 경로
+    sentence_alignment_paths: [씬][문장] alignment JSON 경로
+
+  출력:
+    sentence_schedule.json: {sentence_schedules: [{scene_index, sent_index, text, image_prompt, duration, audio_path}]}
+  """
+  schedule_path = poem_dir / 'step3_sentence_schedule.json'
+
+  if use_cache and schedule_path.exists():
+    logger.info(f'캐시된 문장 스케줄 사용: {schedule_path}')
+    return str(schedule_path)
+
+  sentence_schedules = []
+
+  for scene_idx, scene in enumerate(script_data):
+    sentences = scene.get('modern_sentences', [])
+    sentence_prompts = scene.get('sentence_image_prompts', [])
+    audio_paths_for_scene = sentence_audio_paths[scene_idx] if scene_idx < len(sentence_audio_paths) else []
+    align_paths_for_scene = sentence_alignment_paths[scene_idx] if scene_idx < len(sentence_alignment_paths) else []
+
+    for sent_idx, sentence_text in enumerate(sentences):
+      if sent_idx >= len(align_paths_for_scene):
+        logger.warning(f'Scene {scene_idx} Sent {sent_idx}: alignment 경로 없음')
+        continue
+
+      # alignment JSON 로드
+      try:
+        alignment_data = json.loads(
+          Path(align_paths_for_scene[sent_idx]).read_text(encoding='utf-8')
+        )
+      except Exception as e:
+        logger.error(f'alignment 로드 실패: {align_paths_for_scene[sent_idx]}, {e}')
+        raise
+
+      duration = alignment_data.get('duration', 1.0)
+      image_prompt = (
+        sentence_prompts[sent_idx]
+        if sent_idx < len(sentence_prompts)
+        else scene.get('image_prompt', '')
+      )
+
+      sentence_schedules.append({
+        'scene_index': scene_idx,
+        'sent_index': sent_idx,
+        'text': sentence_text,
+        'image_prompt': image_prompt,
+        'negative_prompt': NEGATIVE_PROMPT,
+        'duration': duration,
+        'audio_path': audio_paths_for_scene[sent_idx] if sent_idx < len(audio_paths_for_scene) else '',
+      })
+
+  final_schedule = {
+    'sentence_schedules': sentence_schedules,
+    'total_sentences': len(sentence_schedules),
+    'common_negative_prompt': NEGATIVE_PROMPT,
+  }
+
+  schedule_path.parent.mkdir(parents=True, exist_ok=True)
+  schedule_path.write_text(
+    json.dumps(final_schedule, ensure_ascii=False, indent=2), encoding='utf-8'
+  )
+  logger.info(f'문장 스케줄 저장: {schedule_path} ({len(sentence_schedules)}개 문장)')
+
+  return str(schedule_path)
+
+
 def cmd_check() -> bool:
   """프레임 스케줄링 환경 확인"""
   checks = []
