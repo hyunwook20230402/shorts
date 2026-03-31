@@ -126,25 +126,44 @@ def make_subtitle_clip_for_sentence(
 
 
 def concatenate_clips(
-  clip_paths: list[str]
+  clip_paths: list[str],
+  audio_paths: list[str]
 ) -> VideoFileClip:
   """
-  씬별 클립들을 시간순서대로 연결
-  반환: 연결된 VideoClip
+  씬별 클립들을 시간순서대로 연결 + 오디오 싱크
+  각 씬의 클립을 대응하는 오디오 길이에 맞춤 (마지막 프레임 hold)
+  반환: 연결된 VideoClip (씬별 오디오 이미 포함)
   """
   clips = []
   total_duration = 0
 
-  for clip_path in clip_paths:
+  for clip_idx, clip_path in enumerate(clip_paths):
     try:
       clip = VideoFileClip(clip_path)
       # 10fps → 30fps 메타데이터 변환 (재생속도 아님)
       if clip.fps != OUTPUT_FPS:
         logger.info(f'프레임레이트 변환: {clip.fps} → {OUTPUT_FPS}')
         clip = clip.set_fps(OUTPUT_FPS)
+
+      # 대응하는 오디오 로드 및 duration 확인
+      audio = AudioFileClip(audio_paths[clip_idx])
+      audio_duration = audio.duration
+      audio.close()
+
+      # 클립 길이를 오디오에 맞춤
+      if clip.duration < audio_duration:
+        logger.info(f'씬{clip_idx} 클립 확장: {clip.duration:.2f}s → {audio_duration:.2f}s (오디오 기준)')
+        clip = clip.set_duration(audio_duration)  # 마지막 프레임 hold
+      elif clip.duration > audio_duration:
+        logger.warning(f'씬{clip_idx} 클립이 오디오보다 김: {clip.duration:.2f}s > {audio_duration:.2f}s (자르지 않음)')
+
+      # 씬별로 오디오 붙이기
+      audio = AudioFileClip(audio_paths[clip_idx])
+      clip = clip.set_audio(audio)
+
       clips.append(clip)
       total_duration += clip.duration
-      logger.info(f'클립 로드: {clip_path} ({clip.duration:.2f}s)')
+      logger.info(f'씬{clip_idx} 클립 로드: {clip_path} ({clip.duration:.2f}s) + 오디오 ({audio_duration:.2f}s)')
     except Exception as e:
       logger.error(f'클립 로드 실패: {clip_path}, {e}')
       raise
@@ -161,27 +180,27 @@ def concatenate_clips(
 def add_subtitles_to_video(
   video_clip: VideoFileClip,
   alignment_paths: list[str],
-  video_clip_paths: list[str]
+  audio_paths: list[str]
 ) -> VideoFileClip:
   """
   타임스탬프 기반 자막 Burn-in
-  씬별 누적 오프셋 고려
+  씬별 누적 오프셋 고려 (오디오 길이 기준)
   """
   subtitle_clips = []
   cumulative_time = 0.0
 
-  for scene_idx, (alignment_path, clip_path) in enumerate(zip(alignment_paths, video_clip_paths)):
+  for scene_idx, (alignment_path, audio_path) in enumerate(zip(alignment_paths, audio_paths)):
     alignment_data = load_alignment_data(alignment_path)
     sentences = alignment_data.get('sentences', [])
 
-    # 씬의 비디오 길이
+    # 씬의 오디오 길이 (오디오 기준 오프셋)
     try:
-      scene_video = VideoFileClip(clip_path)
-      scene_duration = scene_video.duration
-      scene_video.close()
+      audio = AudioFileClip(audio_path)
+      audio_duration = audio.duration
+      audio.close()
     except Exception as e:
-      logger.error(f'씬 비디오 길이 조회 실패: {clip_path}, {e}')
-      scene_duration = 0
+      logger.error(f'씬 오디오 길이 조회 실패: {audio_path}, {e}')
+      audio_duration = 0
 
     # 씬 내 문장들의 자막 생성
     for sentence in sentences:
@@ -189,7 +208,7 @@ def add_subtitles_to_video(
       sent_end = sentence.get('end', 0)
       sent_text = sentence.get('text', '')
 
-      # 누적 오프셋 적용
+      # 누적 오프셋 적용 (오디오 길이 기준)
       global_start = sent_start + cumulative_time
       global_end = sent_end + cumulative_time
 
@@ -206,7 +225,7 @@ def add_subtitles_to_video(
         subtitle_clips.append(subtitle_clip)
         logger.debug(f'Scene {scene_idx} 자막: "{sent_text[:30]}" ({global_start:.2f}~{global_end:.2f}s)')
 
-    cumulative_time += scene_duration
+    cumulative_time += audio_duration
 
   # 자막 클립들을 원본 비디오에 오버레이
   if subtitle_clips:
@@ -315,11 +334,10 @@ def compose_final_video(
 ) -> str:
   """
   최종 영상 합성:
-  1. 클립 연결
+  1. 클립 연결 + 씬별 오디오 싱크 (오디오 길이 기준)
   2. 자막 Burn-in
-  3. 오디오 싱크
-  4. 쇼츠 형식 리사이즈 (1080×1920)
-  5. MP4 저장
+  3. 쇼츠 형식 리사이즈 (1080×1920)
+  4. MP4 저장
 
   반환: 최종 영상 파일 경로
   """
@@ -342,26 +360,22 @@ def compose_final_video(
   logger.info('최종 영상 합성 중...')
 
   try:
-    # 1. 클립 연결
-    video = concatenate_clips(video_clip_paths)
-    logger.info(f'클립 연결 완료: {video.duration:.2f}s')
+    # 1. 클립 연결 + 씬별 오디오 싱크
+    video = concatenate_clips(video_clip_paths, audio_paths)
+    logger.info(f'클립 연결 완료: {video.duration:.2f}s (오디오 기준)')
 
-    # 2. 자막 Burn-in
+    # 2. 자막 Burn-in (오디오 기준 오프셋)
     try:
-      video = add_subtitles_to_video(video, alignment_paths, video_clip_paths)
+      video = add_subtitles_to_video(video, alignment_paths, audio_paths)
       logger.info('자막 Burn-in 완료')
     except Exception as e:
       logger.warning(f'자막 추가 실패 (계속): {e}')
 
-    # 3. 오디오 싱크
-    video = composite_video_with_audio(video, audio_paths)
-    logger.info(f'오디오 싱크 완료')
-
-    # 4. 쇼츠 형식 리사이즈
+    # 3. 쇼츠 형식 리사이즈
     video = resize_video_to_shorts_format(video)
     logger.info(f'쇼츠 형식 변환 완료')
 
-    # 5. 최종 저장
+    # 4. 최종 저장
     output_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f'최종 영상 저장 중: {output_path}')
 
