@@ -166,7 +166,9 @@
       "Bash(find /c/Users/user/workspaces/shorts -name .env -o -name .env.*)",
       "Bash(for d:*)",
       "Read(//c/Users/user/workspaces/shorts/cache/**)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(rm -f test_full_pipeline.py test_step4_manual.py test_step5_compose.py)",
+      "Bash(rm -rf tests/)"
     ]
   }
 }

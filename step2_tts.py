@@ -393,11 +393,51 @@ def cmd_check() -> bool:
 if __name__ == '__main__':
   logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+      logging.FileHandler('step2_tts.log', encoding='utf-8'),
+      logging.StreamHandler()
+    ]
   )
 
-  # 테스트
-  if cmd_check():
-    print('ElevenLabs API 연결 확인 완료')
-  else:
-    print('ElevenLabs API 연결 실패')
+  logger.info('=' * 70)
+  logger.info('Step 2: ElevenLabs TTS 테스트')
+  logger.info('=' * 70)
+
+  # 1. ElevenLabs API 확인
+  if not cmd_check():
+    logger.error('✗ ElevenLabs API 연결 실패')
+    exit(1)
+
+  # 2. 최근 Step 1 NLP 파일 탐색
+  nlp_files = sorted(Path('cache/step1').glob('*_nlp.json'))
+  if not nlp_files:
+    logger.error('✗ Step 1 NLP 캐시 없음')
+    exit(1)
+
+  nlp_path = nlp_files[-1]
+  with open(nlp_path, 'r', encoding='utf-8') as f:
+    nlp_data = json.load(f)
+
+  script_data = nlp_data.get('modern_script_data', [])
+  logger.info(f'NLP 데이터: {len(script_data)}개 씬')
+
+  # 3. Step 2 실행
+  try:
+    logger.info('\nTTS 생성 실행 중...')
+    audio_paths, alignment_paths = generate_all_audio(script_data, use_cache=True)
+
+    logger.info(f'\n✓ TTS 생성 완료: {len(audio_paths)}개')
+    for i, (audio, alignment) in enumerate(zip(audio_paths, alignment_paths)):
+      logger.info(f'\nScene {i}:')
+      logger.info(f'  Audio: {Path(audio).name}')
+      logger.info(f'  Alignment: {Path(alignment).name}')
+
+    logger.info('\n' + '=' * 70)
+    logger.info('✓ Step 2 테스트 완료')
+    logger.info('=' * 70)
+    exit(0)
+
+  except Exception as e:
+    logger.error(f'\n✗ Step 2 실패: {e}', exc_info=True)
+    exit(1)

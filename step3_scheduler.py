@@ -261,10 +261,75 @@ def cmd_check() -> bool:
 if __name__ == '__main__':
   logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+      logging.FileHandler('step3_scheduler.log', encoding='utf-8'),
+      logging.StreamHandler()
+    ]
   )
 
-  if cmd_check():
-    print('프레임 스케줄 환경 준비 완료')
-  else:
-    print('환경 확인 실패')
+  logger.info('=' * 70)
+  logger.info('Step 3: 프레임 스케줄 생성 테스트')
+  logger.info('=' * 70)
+
+  # 1. 환경 확인
+  if not cmd_check():
+    logger.error('✗ 환경 확인 실패')
+    exit(1)
+
+  # 2. 최근 Step 1 NLP 파일 탐색
+  nlp_files = sorted(Path('cache/step1').glob('*_nlp.json'))
+  if not nlp_files:
+    logger.error('✗ Step 1 NLP 캐시 없음')
+    exit(1)
+
+  nlp_path = nlp_files[-1]
+  with open(nlp_path, 'r', encoding='utf-8') as f:
+    nlp_data = json.load(f)
+
+  script_data = nlp_data.get('modern_script_data', [])
+
+  # 3. 최근 Step 2 alignment 파일 탐색
+  alignment_files = sorted(Path('cache/step2').glob('*_alignment.json'))
+  if not alignment_files or len(alignment_files) < len(script_data):
+    logger.error(f'✗ Step 2 alignment 캐시 부족: {len(alignment_files)}/{len(script_data)}')
+    exit(1)
+
+  # 최신 alignment 파일들을 시간순으로 정렬 후 필요한 만큼만 선택
+  # (각 alignment 파일이 다른 해시를 가질 수 있음)
+  if len(alignment_files) < len(script_data):
+    logger.error(f'✗ alignment 파일 부족: {len(alignment_files)}/{len(script_data)}')
+    exit(1)
+
+  # 최신 파일들부터 필요한 개수만큼 역순으로 정렬
+  alignment_paths = [str(f) for f in sorted(alignment_files)[-len(script_data):]]
+  alignment_paths = sorted(alignment_paths, key=lambda x: Path(x).stem.split('_')[1] if len(Path(x).stem.split('_')) > 1 else 0)
+
+  logger.info(f'NLP: {len(script_data)}개 씬')
+  logger.info(f'Alignment: {len(alignment_paths)}개')
+
+  # 4. Step 3 실행
+  try:
+    logger.info('\n스케줄 생성 실행 중...')
+    schedule_path = build_frame_schedules(script_data, alignment_paths, use_cache=True)
+
+    logger.info(f'\n✓ 스케줄 생성 완료')
+    logger.info(f'  파일: {Path(schedule_path).name}')
+
+    with open(schedule_path, 'r', encoding='utf-8') as f:
+      schedule_data = json.load(f)
+    schedules = schedule_data.get('scene_schedules', [])
+    for s in schedules:
+      scene_idx = s['scene_index']
+      total_frames = s['total_frames']
+      duration = total_frames / 10
+      logger.info(f'  Scene {scene_idx}: {total_frames} frames ({duration:.1f}초)')
+
+    logger.info('\n' + '=' * 70)
+    logger.info('✓ Step 3 테스트 완료')
+    logger.info('=' * 70)
+    exit(0)
+
+  except Exception as e:
+    logger.error(f'\n✗ Step 3 실패: {e}', exc_info=True)
+    exit(1)
