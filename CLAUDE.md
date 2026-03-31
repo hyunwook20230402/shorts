@@ -77,20 +77,23 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 
 ## 에이전트 자동 호출 (v2)
 
+**⚠️ 중요: 이 표는 Claude Code 자신에 대한 지시입니다.**
+코드에서 자동 호출되는 것이 아니라, Claude Code가 아래 상황을 감지했을 때 서브에이전트로 호출해야 합니다.
+
 | 상황 | 에이전트 | 목적 |
 |------|---------|------|
 | 고전시가 원문 텍스트 입력 | `historical-context-agent` | 역사적 맥락 조사 |
-| Step 2 alignment 생성 완료 | `audio-visual-qa-agent` | 타임스탬프 품질 검증 |
-| Step 3 스케줄 생성 완료 | `art-director-agent` | AnimateDiff 프롬프트 최적화 |
-| Step 4 클립 생성 완료 | `quality-assurance-agent` | 클립-대본 정합성 검증 |
-| Step 5 영상 생성 완료 | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 |
+| Step 2 (ElevenLabs TTS) 완료 | `audio-visual-qa-agent` | 오디오-타임스탬프 조화 검증 |
+| Step 3 (스케줄) 생성 완료 | `art-director-agent` | AnimateDiff 프롬프트 최적화 |
+| Step 4 (AnimateDiff 클립) 생성 완료 | `quality-assurance-agent` | 클립-대본 정합성 검증 |
+| Step 5 (최종 영상) 생성 완료 | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 |
 
 ## 새로 추가된 파일 (v2)
 
-- `audio_generator.py` — Step 2 ElevenLabs TTS
-- `dynamic_scheduler.py` — Step 3 프레임 스케줄링
-- `clip_generator.py` — Step 4 AnimateDiff 클립
-- `video_processor.py` — Step 5 Burn-in + 병합
+- `step2_tts.py` — Step 2 ElevenLabs TTS + alignment JSON
+- `step3_scheduler.py` — Step 3 AnimateDiff 프레임 스케줄링
+- `step4_clip.py` — Step 4 AnimateDiff 클립 생성 (ComfyUI API)
+- `step5_video.py` — Step 5 자막 burn-in + 최종 병합
 
 ## 참고 자료
 
