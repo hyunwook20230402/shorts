@@ -2,14 +2,14 @@
 Step 2: ElevenLabs TTS로 음성 생성 및 타임스탬프(alignment) 추출
 """
 
-import os
 import json
 import logging
-import hashlib
+import os
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
+
 import requests
+from dotenv import load_dotenv
 
 # .env 파일 명시적 로드
 env_path = Path(__file__).parent / '.env'
@@ -374,8 +374,12 @@ def get_audio_duration_from_mp3(mp3_path: Path) -> float:
 def clean_tts_text(text: str) -> str:
   """TTS 전달 전 구두점 제거 (마침표, 쉼표, 물결 등 음성 불필요 기호)"""
   import re
-  # 음성으로 읽힐 필요 없는 구두점 제거
-  cleaned = re.sub(r'[.,，。、·~～!！?？;；:："""\'\'()\[\]{}]', ' ', text)
+  # 음성으로 읽힐 필요 없는 구두점 제거 (확장: 추가 기호 포함)
+  cleaned = re.sub(
+    r'[.,，。、·~～!！?？;；:："""\'\'()\[\]{}'
+    r'…—–\-/\\@#%\*&|「」『』【】〔〕〈〉《》]',
+    ' ', text
+  )
   # 연속 공백 정리
   cleaned = re.sub(r'\s+', ' ', cleaned).strip()
   return cleaned
@@ -401,8 +405,10 @@ def generate_sentence_audio(
     return mp3_path, alignment_path
 
   cleaned = clean_tts_text(sentence_text)
+  if cleaned != sentence_text:
+    logger.debug(f'TTS 텍스트 정제: "{sentence_text}" → "{cleaned}"')
   if not cleaned:
-    logger.warning(f'Scene {scene_idx} Sent {sent_idx}: 구두점 제거 후 텍스트 없음')
+    logger.warning(f'Scene {scene_idx} Sent {sent_idx}: 구두점 제거 후 텍스트 없음, 원본 사용')
     cleaned = sentence_text
 
   logger.info(f'ElevenLabs 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx}')

@@ -7,14 +7,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from api.models import TaskStatus, StepStatusEnum
-from api.poem_registry import PoemRegistry
 from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
 from step2_tts import generate_all_audio as elevenlabs_generate_all_v3
 from step3_scheduler import build_sentence_schedules
 from step4_clip import generate_all_clips
 from step5_video import compose_final_video
+
+from api.models import StepStatusEnum, TaskStatus
+from api.poem_registry import PoemRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -266,18 +267,18 @@ async def run_step3_schedule(
 
 
 async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: bool = True) -> list[str]:
-  """Step 4: 문장 단위 이미지/클립 생성 (Step 4-A: 정지 이미지 + Step 4-B: Ken Burns) → video_clip_paths"""
+  """Step 4: 문장 단위 정지 이미지 생성 (Step 4-A) → still_image_paths"""
   task = task_status_dict[task_id]
   task.current_step = 4
   task.status = StepStatusEnum.running
-  task.status_message = 'Step 4-A: ComfyUI 정지 이미지 생성 중...'
+  task.status_message = 'Step 4: ComfyUI 정지 이미지 생성 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
 
   try:
     poem_dir = _get_poem_dir(task)
-    # generate_all_clips()는 이제 (clip_paths, still_paths) 튜플 반환
-    video_clip_paths, still_image_paths = generate_all_clips(
+    # generate_all_clips()는 이제 still_image_paths 리스트만 반환
+    still_image_paths = generate_all_clips(
       sentence_schedule_path,
       poem_dir,
       use_cache=use_cache
@@ -285,12 +286,12 @@ async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: 
 
     task = task_status_dict[task_id]
     task.still_image_paths = still_image_paths
-    task.video_clip_paths = video_clip_paths
+    task.video_clip_paths = []
     task.status = StepStatusEnum.completed
-    task.status_message = f'영상 클립 생성 완료 ({len(video_clip_paths)}개 문장, I2V Ken Burns 모드)'
+    task.status_message = f'정지 이미지 생성 완료 ({len(still_image_paths)}개 문장)'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
-    return video_clip_paths
+    return still_image_paths
   except Exception as e:
     logger.error(f'Step 4 오류: {e}')
     task = task_status_dict[task_id]
@@ -304,11 +305,11 @@ async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: 
 
 async def run_step5_merge(
   task_id: str,
-  video_clip_paths: list[str],
+  still_image_paths: list[str],
   audio_paths: list[str],
   sentence_schedule_path: str
 ) -> str:
-  """Step 5: 문장 단위 클립 병합 + 자막 → final video_path"""
+  """Step 5: 문장 단위 이미지 병합 + 자막 → final video_path"""
   task = task_status_dict[task_id]
   task.current_step = 5
   task.status = StepStatusEnum.running
@@ -319,7 +320,7 @@ async def run_step5_merge(
   try:
     poem_dir = _get_poem_dir(task)
     video_path = compose_final_video(
-      video_clip_paths,
+      still_image_paths,
       audio_paths,
       sentence_schedule_path,
       poem_dir,
@@ -377,16 +378,16 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
     else:
       sentence_schedule_path = task_status_dict[task_id].sentence_schedule_path
 
-    # Step 4: 문장 단위 이미지/클립 생성
+    # Step 4: 문장 단위 정지 이미지 생성
     if start_step <= 4 <= end_step:
-      video_clip_paths = await run_step4_clips(task_id, sentence_schedule_path)
+      still_image_paths = await run_step4_clips(task_id, sentence_schedule_path)
     else:
-      video_clip_paths = task_status_dict[task_id].video_clip_paths
+      still_image_paths = task_status_dict[task_id].still_image_paths
 
-    # Step 5: 문장 단위 클립 병합 + 자막
+    # Step 5: 문장 단위 이미지 병합 + 자막
     if start_step <= 5 <= end_step:
       audio_flat = task_status_dict[task_id].audio_paths  # flat list
-      await run_step5_merge(task_id, video_clip_paths, audio_flat, sentence_schedule_path)
+      await run_step5_merge(task_id, still_image_paths, audio_flat, sentence_schedule_path)
 
     # 완료
     task = task_status_dict[task_id]

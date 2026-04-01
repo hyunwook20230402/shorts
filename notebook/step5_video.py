@@ -2,24 +2,21 @@
 Step 5: AnimateDiff 클립 연결 + ElevenLabs 타임스탬프 기반 자막 Burn-in + 최종 병합
 """
 
-import os
 import json
 import logging
-import hashlib
-import math
+import os
 from pathlib import Path
 from typing import Optional
+
 from dotenv import load_dotenv
 from moviepy.editor import (
-  VideoFileClip,
-  concatenate_videoclips,
-  concatenate_audioclips,
-  TextClip,
-  CompositeVideoClip,
+  AudioFileClip,
   ColorClip,
-  AudioFileClip
+  CompositeVideoClip,
+  ImageClip,
+  concatenate_audioclips,
+  concatenate_videoclips,
 )
-import numpy as np
 
 load_dotenv()
 
@@ -78,9 +75,9 @@ def make_subtitle_clip_for_sentence(
     return None
 
   try:
-    from PIL import Image, ImageDraw, ImageFont
-    import numpy as np
     import tempfile
+
+    from PIL import Image, ImageDraw, ImageFont
 
     # PIL로 텍스트 이미지 생성
     temp_dir = Path(tempfile.gettempdir())
@@ -90,7 +87,7 @@ def make_subtitle_clip_for_sentence(
     font_size = SUBTITLE_FONT_SIZE
     try:
       font = ImageFont.truetype(str(SUBTITLE_FONT_PATH), font_size)
-    except:
+    except Exception:
       font = ImageFont.load_default()
 
     # 배경 이미지 생성 (투명 배경)
@@ -125,57 +122,51 @@ def make_subtitle_clip_for_sentence(
 
 
 def concatenate_clips(
-  clip_paths: list[str],
+  still_paths: list[str],
   audio_paths: list[str]
-) -> VideoFileClip:
+) -> object:
   """
-  문장 단위 클립들을 시간순서대로 연결 + 오디오 싱크
-  각 클립과 오디오의 길이가 이미 일치함 (Step 4에서 보장)
+  문장 단위 이미지들을 시간순서대로 연결 + 오디오 싱크
+  각 이미지 duration은 오디오 길이에 맞춤
   반환: 연결된 VideoClip (각 문장별 오디오 포함)
   """
   clips = []
   total_duration = 0
 
-  for clip_idx, clip_path in enumerate(clip_paths):
+  for clip_idx, still_path in enumerate(still_paths):
     try:
-      clip = VideoFileClip(clip_path)
-      # 10fps → 30fps 메타데이터 변환 (재생속도 아님)
-      if clip.fps != OUTPUT_FPS:
-        logger.info(f'프레임레이트 변환: {clip.fps} → {OUTPUT_FPS}')
-        clip = clip.set_fps(OUTPUT_FPS)
+      # 오디오 길이 확인
+      if clip_idx >= len(audio_paths):
+        logger.warning(f'문장{clip_idx}: audio_paths 범위 초과, 스킵')
+        continue
 
-      # 문장별 오디오 길이 확인
       audio = AudioFileClip(audio_paths[clip_idx])
       audio_duration = audio.duration
 
-      # 클립 길이를 오디오에 맞춤 (보험용)
-      if clip.duration != audio_duration:
-        logger.info(f'문장{clip_idx} 클립 동기화: {clip.duration:.2f}s → {audio_duration:.2f}s (오디오 기준)')
-        clip = clip.set_duration(audio_duration)
-
-      # 문장별 오디오 붙이기
+      # PNG 이미지를 ImageClip으로 로드, 오디오 길이만큼 duration 설정
+      clip = ImageClip(still_path).set_duration(audio_duration).set_fps(OUTPUT_FPS)
       clip = clip.set_audio(audio)
 
       clips.append(clip)
       total_duration += clip.duration
-      logger.info(f'문장{clip_idx} 클립 로드: {clip_path} ({clip.duration:.2f}s)')
+      logger.info(f'문장{clip_idx} 이미지 로드: {Path(still_path).name} ({clip.duration:.2f}s)')
     except Exception as e:
-      logger.error(f'클립 로드 실패: {clip_path}, {e}')
+      logger.error(f'이미지 로드 실패: {still_path}, {e}')
       raise
 
   if not clips:
-    raise ValueError('연결할 클립이 없습니다')
+    raise ValueError('연결할 이미지가 없습니다')
 
   # 클립 연결
   concatenated = concatenate_videoclips(clips)
-  logger.info(f'클립 연결 완료: 총 {len(clips)}개 문장, {total_duration:.2f}s')
+  logger.info(f'이미지 연결 완료: 총 {len(clips)}개 문장, {total_duration:.2f}s')
   return concatenated
 
 
 def add_subtitles_to_video(
-  video_clip: VideoFileClip,
+  video_clip,
   sentence_schedules: list[dict]
-) -> VideoFileClip:
+):
   """
   문장 단위 자막 Burn-in
   각 문장의 duration을 누적하여 global_start/end 계산
@@ -217,50 +208,11 @@ def add_subtitles_to_video(
     logger.error(f'자막 오버레이 실패: {e}')
     return video_clip
 
-  # 이전 코드 (씬 단위) - 제거됨
-  # cumulative_time = 0.0
-  # for scene_idx, (alignment_path, audio_path) in enumerate(zip(alignment_paths, audio_paths)):
-  #   alignment_data = load_alignment_data(alignment_path)
-  #   sentences = alignment_data.get('sentences', [])
-  #   sent_start = sentence.get('start', 0)
-      sent_end = sentence.get('end', 0)
-      sent_text = sentence.get('text', '')
-
-      # 누적 오프셋 적용 (오디오 길이 기준)
-      global_start = sent_start + cumulative_time
-      global_end = sent_end + cumulative_time
-
-      # 자막 클립 생성
-      subtitle_clip = make_subtitle_clip_for_sentence(
-        sent_text,
-        global_start,
-        global_end,
-        OUTPUT_WIDTH,
-        OUTPUT_HEIGHT
-      )
-
-      if subtitle_clip:
-        subtitle_clips.append(subtitle_clip)
-        logger.debug(f'Scene {scene_idx} 자막: "{sent_text[:30]}" ({global_start:.2f}~{global_end:.2f}s)')
-
-    cumulative_time += audio_duration
-
-  # 자막 클립들을 원본 비디오에 오버레이
-  if subtitle_clips:
-    final_video = CompositeVideoClip(
-      [video_clip] + subtitle_clips
-    )
-    logger.info(f'자막 Burn-in 완료: {len(subtitle_clips)}개 문장')
-    return final_video
-  else:
-    logger.warning('생성된 자막이 없습니다')
-    return video_clip
-
 
 def composite_video_with_audio(
-  video_clip: VideoFileClip,
+  video_clip,
   audio_paths: list[str]
-) -> VideoFileClip:
+):
   """
   비디오에 오디오 합치기
   여러 MP3 파일을 순차적으로 연결하여 오디오 트랙으로 설정
@@ -296,10 +248,10 @@ def composite_video_with_audio(
 
 
 def resize_video_to_shorts_format(
-  video_clip: VideoFileClip,
+  video_clip,
   target_width: int = OUTPUT_WIDTH,
   target_height: int = OUTPUT_HEIGHT
-) -> VideoFileClip:
+):
   """
   비디오를 쇼츠 형식으로 리사이즈 (1080×1920)
   """
@@ -340,12 +292,12 @@ def resize_video_to_shorts_format(
     [background, resized.set_position((offset_x, offset_y))]
   ).set_fps(OUTPUT_FPS)
 
-  logger.info(f'리사이즈 완료')
+  logger.info('리사이즈 완료')
   return final_clip
 
 
 def compose_final_video(
-  video_clip_paths: list[str],
+  still_image_paths: list[str],
   audio_paths: list[str],
   sentence_schedule_path: str,
   poem_dir: Path,
@@ -353,7 +305,7 @@ def compose_final_video(
 ) -> str:
   """
   최종 영상 합성 (문장 단위):
-  1. 문장 단위 클립 연결 + 오디오 싱크
+  1. 문장 단위 이미지 연결 + 오디오 싱크
   2. 문장 단위 자막 Burn-in
   3. 쇼츠 형식 리사이즈 (1080×1920)
   4. MP4 저장
@@ -375,9 +327,9 @@ def compose_final_video(
       schedule_data = json.load(f)
     sentence_schedules = schedule_data.get('sentence_schedules', [])
 
-    # 1. 문장 단위 클립 연결 + 오디오 싱크
-    video = concatenate_clips(video_clip_paths, audio_paths)
-    logger.info(f'클립 연결 완료: {video.duration:.2f}s')
+    # 1. 문장 단위 이미지 연결 + 오디오 싱크
+    video = concatenate_clips(still_image_paths, audio_paths)
+    logger.info(f'이미지 연결 완료: {video.duration:.2f}s')
 
     # 2. 문장 단위 자막 Burn-in
     try:
@@ -388,7 +340,7 @@ def compose_final_video(
 
     # 3. 쇼츠 형식 리사이즈
     video = resize_video_to_shorts_format(video)
-    logger.info(f'쇼츠 형식 변환 완료')
+    logger.info('쇼츠 형식 변환 완료')
 
     # 4. 최종 저장
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -427,11 +379,11 @@ def cmd_check() -> bool:
 
   # MoviePy 확인
   try:
-    import moviepy
-    logger.info(f'✓ MoviePy 설치됨')
+    import moviepy  # noqa: F401
+    logger.info('✓ MoviePy 설치됨')
     checks.append(True)
   except ImportError:
-    logger.error(f'✗ MoviePy 설치 필요')
+    logger.error('✗ MoviePy 설치 필요')
     checks.append(False)
 
   return all(checks)
@@ -456,25 +408,25 @@ if __name__ == '__main__':
     logger.error('✗ 환경 확인 실패')
     exit(1)
 
-  # 2. Step 4 클립 파일 탐색
-  clip_files = sorted(Path('cache/step4').glob('*_clip.mp4'))
-  if not clip_files:
-    logger.error('✗ Step 4 클립 캐시 없음')
+  # 2. Step 4 이미지 파일 탐색
+  still_files = sorted(Path('cache').glob('*/*_still.png'))
+  if not still_files:
+    logger.error('✗ Step 4 정지 이미지 캐시 없음')
     exit(1)
 
-  # 최신 클립 그룹만 선택
-  clip_hashes = {}
-  for f in clip_files:
-    hash_part = f.stem.split('_')[0]
-    if hash_part not in clip_hashes:
-      clip_hashes[hash_part] = []
-    clip_hashes[hash_part].append((int(f.stem.split('_')[1]), str(f)))
+  # 최신 그룹만 선택 (poem_id 기반)
+  still_by_group = {}
+  for f in still_files:
+    # 경로: cache/{poem_id}/step4_scene00_sent00_still.png
+    group_id = f.parent.name
+    if group_id not in still_by_group:
+      still_by_group[group_id] = []
+    still_by_group[group_id].append(str(f))
 
-  latest_hash = max(clip_hashes.keys())
-  latest_clips = sorted(clip_hashes[latest_hash])
-  clip_paths = [p[1] for p in latest_clips]
+  latest_group = max(still_by_group.keys())
+  still_paths = sorted(still_by_group[latest_group])
 
-  logger.info(f'클립: {len(clip_paths)}개')
+  logger.info(f'정지 이미지: {len(still_paths)}개')
 
   # 3. Step 2 오디오/alignment 파일 탐색
   audio_files = sorted(Path('cache/step2').glob('*_audio.mp3'))
@@ -484,21 +436,29 @@ if __name__ == '__main__':
     logger.error('✗ Step 2 오디오/alignment 캐시 없음')
     exit(1)
 
-  # 씬별로 해시가 다를 수 있으므로 인덱스 번호 기준으로 정렬
+  # 인덱스 번호 기준으로 정렬 (scene_idx_sent_idx)
   audio_paths = [str(f) for f in sorted(audio_files, key=lambda f: int(f.stem.split('_')[1]))]
   alignment_paths = [str(f) for f in sorted(alignment_files, key=lambda f: int(f.stem.split('_')[1]))]
 
   logger.info(f'오디오: {len(audio_paths)}개')
-  logger.info(f'Alignment: {len(alignment_paths)}개')
 
-  if not (len(clip_paths) == len(audio_paths) == len(alignment_paths)):
-    logger.error(f'✗ 씬 개수 불일치: clips={len(clip_paths)}, audio={len(audio_paths)}, align={len(alignment_paths)}')
+  if not (len(still_paths) == len(audio_paths)):
+    logger.error(f'✗ 문장 개수 불일치: still={len(still_paths)}, audio={len(audio_paths)}')
     exit(1)
+
+  # Step 3 스케줄 파일 탐색
+  schedule_files = sorted(Path('cache').glob('*/*sentence_schedule.json'))
+  if not schedule_files:
+    logger.error('✗ Step 3 문장 스케줄 캐시 없음')
+    exit(1)
+
+  schedule_path = str(schedule_files[-1])
+  poem_dir = schedule_files[-1].parent
 
   # 4. Step 5 실행
   try:
     logger.info('\n최종 영상 합성 실행 중...')
-    output_path = compose_final_video(clip_paths, audio_paths, alignment_paths, use_cache=True)
+    output_path = compose_final_video(still_paths, audio_paths, schedule_path, poem_dir, use_cache=True)
 
     if Path(output_path).exists():
       size_mb = Path(output_path).stat().st_size / (1024 * 1024)

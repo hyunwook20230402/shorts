@@ -1,14 +1,13 @@
 import asyncio
 import logging
 import os
-import requests
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+import requests
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from api.models import StepRequest, PipelineRunRequest, StepStatusEnum
+from api.models import PipelineRunRequest, StepRequest, StepStatusEnum
 from api.pipeline_runner import (
-  task_status_dict,
   run_pipeline_async,
   run_step0,
   run_step1,
@@ -16,6 +15,7 @@ from api.pipeline_runner import (
   run_step3_schedule,
   run_step4_clips,
   run_step5_merge,
+  task_status_dict,
 )
 
 # 태스크 실행용 executor
@@ -181,7 +181,7 @@ async def run_step3_endpoint(request: StepRequest) -> dict:
 
   task = task_status_dict[request.task_id]
 
-  if not task.audio_paths or not task.tts_alignment_paths:
+  if not task.sentence_audio_paths or not task.sentence_alignment_paths:
     raise HTTPException(
       status_code=400,
       detail='ElevenLabs 오디오/타임스탬프가 없습니다. Step 2를 먼저 실행하세요'
@@ -189,6 +189,7 @@ async def run_step3_endpoint(request: StepRequest) -> dict:
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
+    task.sentence_schedule_path = None
     task.frame_schedule_path = None
     task.still_image_paths = []
     task.video_clip_paths = []
@@ -203,7 +204,8 @@ async def run_step3_endpoint(request: StepRequest) -> dict:
       asyncio.run(run_step3_schedule(
         request.task_id,
         script_data,
-        task.tts_alignment_paths,
+        task.sentence_audio_paths,
+        task.sentence_alignment_paths,
         request.use_cache
       ))
     except Exception as e:
@@ -267,19 +269,19 @@ async def run_step5_endpoint(request: StepRequest) -> dict:
 
   task = task_status_dict[request.task_id]
 
-  if not task.video_clip_paths:
+  if not task.still_image_paths or not task.sentence_schedule_path:
     raise HTTPException(
       status_code=400,
-      detail='비디오 클립이 없습니다. Step 4를 먼저 실행하세요'
+      detail='정지 이미지 또는 스케줄이 없습니다. Step 3~4를 먼저 실행하세요'
     )
 
   def _run_sync():
     try:
       asyncio.run(run_step5_merge(
         request.task_id,
-        task.video_clip_paths,
+        task.still_image_paths,
         task.audio_paths,
-        task.tts_alignment_paths
+        task.sentence_schedule_path
       ))
     except Exception as e:
       logger.error(f'Step 5 오류: {e}')

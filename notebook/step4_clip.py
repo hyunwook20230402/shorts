@@ -2,20 +2,17 @@
 Step 4: ComfyUI AnimateDiff (SD 1.5 + LoRA)로 씬별 영상 클립 생성
 """
 
-import os
 import json
 import logging
-import hashlib
-import math
-import time
-import base64
-import subprocess
+import os
 import shutil
+import subprocess
+import time
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
+
 import requests
-import websocket
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -37,7 +34,6 @@ COMFYUI_MAX_WAIT = int(os.getenv('COMFYUI_MAX_WAIT', '1200'))  # 초 단위
 # I2V 관련 환경변수
 STILL_IMAGE_STEPS = int(os.getenv('STILL_IMAGE_STEPS', '30'))
 STILL_IMAGE_CFG = float(os.getenv('STILL_IMAGE_CFG', '7.5'))
-KEN_BURNS_MODE = os.getenv('KEN_BURNS_MODE', 'true').lower() == 'true'
 I2V_DURATION = float(os.getenv('I2V_DURATION', '3.0'))
 
 # IP-Adapter 관련 환경변수
@@ -648,98 +644,27 @@ def generate_still_image(
 
   # IP-Adapter 사용 여부 결정 (참조 이미지 + 노드 설치 여부)
   if use_ipadapter and Path(REFERENCE_IMAGE_PATH).exists() and check_ipadapter_available():
-    logger.info(f'Scene {scene_index}: IP-Adapter 워크플로우 사용' + (f' (2장 참고 이미지)' if ref_image2 else ''))
+    logger.info(f'Scene {scene_idx}: IP-Adapter 워크플로우 사용' + (' (2장 참고 이미지)' if ref_image2 else ''))
     workflow = build_still_image_workflow_with_ipadapter(prompt, negative_prompt, ref_image2)
   else:
     if use_ipadapter:
-      logger.info(f'Scene {scene_index}: 기본 워크플로우로 폴백 (IP-Adapter 미사용)')
+      logger.info(f'Scene {scene_idx}: 기본 워크플로우로 폴백 (IP-Adapter 미사용)')
     workflow = build_still_image_workflow(prompt, negative_prompt)
 
   prompt_id = submit_prompt_to_comfyui(workflow)
 
   if not poll_until_done(prompt_id):
-    raise RuntimeError(f'Scene {scene_index} 정지 이미지 타임아웃')
+    raise RuntimeError(f'Scene {scene_idx} 정지 이미지 타임아웃')
 
   output_png = download_generated_still(prompt_id)
   if not output_png:
-    raise RuntimeError(f'Scene {scene_index} 정지 이미지 파일 없음')
+    raise RuntimeError(f'Scene {scene_idx} 정지 이미지 파일 없음')
 
   still_path.parent.mkdir(parents=True, exist_ok=True)
   shutil.copy2(str(output_png), str(still_path))
   logger.info(f'정지 이미지 캐시 저장: {still_path}')
 
   return str(still_path)
-
-
-def animate_with_ken_burns(
-  still_path: str,
-  scene_idx: int,
-  sent_idx: int,
-  poem_dir: Path,
-  duration: float = I2V_DURATION,
-  use_cache: bool = True
-) -> str:
-  """
-  Step 4-B: ffmpeg zoompan 필터로 Ken Burns 효과 클립 생성 (문장 단위)
-  반환: MP4 파일 경로
-  """
-  clip_path = get_sentence_clip_path(poem_dir, scene_idx, sent_idx)
-
-  if use_cache and clip_path.exists():
-    logger.info(f'캐시된 클립 사용: {clip_path}')
-    return str(clip_path)
-
-  logger.info(f'Scene {scene_idx} Sent {sent_idx} Ken Burns 클립 생성 중...')
-
-  fps = ANIMATEDIFF_FPS
-  total_frames = int(duration * fps)
-
-  # 문장 인덱스를 홀짝으로 나눠 줌인/줌아웃 교번 적용 (1.0~1.1 범위, 전체 클립에 걸쳐 천천히)
-  alternate_idx = scene_idx * 100 + sent_idx  # 씬/문장 조합으로 홀짝 결정
-  zoom_range = 0.1  # 1.0 → 1.1 범위
-  zoom_step = round(zoom_range / max(total_frames, 1), 6)  # 전체 프레임에 걸쳐 균등 변화
-
-  if alternate_idx % 2 == 0:
-    # 짝수: 1.0에서 1.1로 천천히 줌인
-    zoom_expr = f"'min(1.1,zoom+{zoom_step})'"
-  else:
-    # 홀수: 1.1에서 1.0으로 천천히 줌아웃
-    zoom_expr = f"'if(eq(on,1),1.1,max(1.0,zoom-{zoom_step}))'"
-
-  still_path_fwd = str(still_path).replace('\\', '/')
-  clip_path_fwd = str(clip_path).replace('\\', '/')
-
-  cmd = [
-    'ffmpeg',
-    '-loop', '1',
-    '-i', still_path_fwd,
-    '-vf', (
-      f'zoompan='
-      f'z={zoom_expr}:'
-      f'd={total_frames}:'
-      f"x='iw/2-(iw/zoom/2)':"
-      f"y='ih/2-(ih/zoom/2)':"
-      f's=512x912'
-    ),
-    '-t', str(duration),
-    '-r', str(fps),
-    '-c:v', 'libx264',
-    '-crf', '23',
-    '-preset', 'fast',
-    '-y',
-    clip_path_fwd
-  ]
-
-  logger.info(f'ffmpeg Ken Burns: Scene {scene_idx} Sent {sent_idx}')
-  clip_path.parent.mkdir(parents=True, exist_ok=True)
-  result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-  if result.returncode == 0:
-    logger.info(f'Ken Burns 클립 생성 완료: {clip_path}')
-    return str(clip_path)
-  else:
-    logger.error(f'ffmpeg 오류: {result.stderr}')
-    raise RuntimeError(f'Scene {scene_idx} Sent {sent_idx} Ken Burns 변환 실패: {result.stderr[:200]}')
 
 
 def _generate_clip_t2v(
@@ -771,7 +696,7 @@ def _generate_clip_t2v(
   if not poll_until_done(prompt_id):
     raise RuntimeError(f'Scene {scene_index} 클립 생성 타임아웃')
 
-  output_video = download_generated_video(f'shorts_clip')
+  output_video = download_generated_video('shorts_clip')
   if not output_video:
     raise RuntimeError(f'Scene {scene_index} 클립 파일을 찾을 수 없음')
 
@@ -789,17 +714,11 @@ def generate_clip(
   use_cache: bool = True
 ) -> str:
   """
-  씬별 영상 클립 생성 (I2V 또는 T2V 모드)
+  씬별 영상 클립 생성 (레거시 함수, 현재 미사용)
   반환: 클립 파일 경로
   """
-  if KEN_BURNS_MODE:
-    still_path = generate_still_image(scene_schedule, scene_index, schedule_hash, use_cache)
-    # Step 3의 total_frames 기반으로 duration 계산 (generate_all_clips와 일관성)
-    total_frames = scene_schedule.get('total_frames', int(I2V_DURATION * ANIMATEDIFF_FPS))
-    duration = total_frames / ANIMATEDIFF_FPS
-    return animate_with_ken_burns(still_path, scene_index, schedule_hash, duration, use_cache)
-  else:
-    return _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)
+  # Ken Burns 모드는 제거되었으므로 이 함수는 더이상 호출되지 않음
+  return _generate_clip_t2v(scene_schedule, scene_index, schedule_hash, use_cache)
 
 
 def _setup_ipadapter(sentence_schedules: list[dict]) -> tuple[bool, str | None]:
@@ -843,12 +762,12 @@ def generate_all_clips(
   sentence_schedule_path: str,
   poem_dir: Path,
   use_cache: bool = True
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
   """
-  문장 단위 영상 클립 생성 (I2V Ken Burns 모드)
+  문장 단위 정지 이미지 생성 (Step 4-A)
 
   입력: sentence_schedule_path (Step 3 문장 스케줄 JSON)
-  출력: (clip_paths, still_image_paths) - 문장 순서대로 flat list
+  출력: still_image_paths - 문장 순서대로 flat list
 
   IP-Adapter 캐릭터 일관성 처리:
   - 참조 이미지 자동 생성 (필요한 경우)
@@ -864,12 +783,11 @@ def generate_all_clips(
     raise
 
   sentence_schedules = schedule_data.get('sentence_schedules', [])
-  logger.info(f'문장 단위 클립 생성: {len(sentence_schedules)}개 문장')
+  logger.info(f'정지 이미지 생성: {len(sentence_schedules)}개 문장')
 
   # IP-Adapter 초기화
   use_ipadapter, ref_image2 = _setup_ipadapter(sentence_schedules)
 
-  clip_paths = []
   still_paths = []
 
   for entry in sentence_schedules:
@@ -877,33 +795,21 @@ def generate_all_clips(
     sent_idx = entry.get('sent_index', 0)
     image_prompt = entry.get('image_prompt', '')
     negative_prompt = entry.get('negative_prompt', '')
-    duration = entry.get('duration', I2V_DURATION)
 
     try:
-      if KEN_BURNS_MODE:
-        # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
-        still_path = generate_still_image(
-          image_prompt, negative_prompt, scene_idx, sent_idx, poem_dir,
-          use_cache=use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
-        )
-        still_paths.append(still_path)
-
-        # Step 4-B: Ken Burns 클립 생성 (duration 기반)
-        clip_path = animate_with_ken_burns(
-          still_path, scene_idx, sent_idx, poem_dir, duration=duration, use_cache=use_cache
-        )
-        clip_paths.append(clip_path)
-      else:
-        # T2V 레거시 모드 (현재 미지원)
-        logger.warning(f'Scene {scene_idx} Sent {sent_idx}: T2V 모드는 미지원')
-        raise RuntimeError('T2V 모드는 현재 지원하지 않습니다')
+      # Step 4-A: 정지 이미지 생성 (IP-Adapter 옵션)
+      still_path = generate_still_image(
+        image_prompt, negative_prompt, scene_idx, sent_idx, poem_dir,
+        use_cache=use_cache, use_ipadapter=use_ipadapter, ref_image2=ref_image2
+      )
+      still_paths.append(still_path)
 
     except Exception as e:
-      logger.error(f'Scene {scene_idx} Sent {sent_idx} 클립 생성 실패: {e}')
+      logger.error(f'Scene {scene_idx} Sent {sent_idx} 정지 이미지 생성 실패: {e}')
       raise
 
-  logger.info(f'전체 클립 생성 완료: {len(clip_paths)}개 문장 (I2V Ken Burns, IP-Adapter: {use_ipadapter})')
-  return clip_paths, still_paths
+  logger.info(f'정지 이미지 생성 완료: {len(still_paths)}개 문장 (IP-Adapter: {use_ipadapter})')
+  return still_paths
 
 
 if __name__ == '__main__':
@@ -940,16 +846,16 @@ if __name__ == '__main__':
 
   # 4. Step 4 실행
   try:
-    logger.info('\n클립 생성 실행 중...')
-    clip_paths, still_paths = generate_all_clips(schedule_path, use_cache=True)
+    logger.info('\n정지 이미지 생성 실행 중...')
+    poem_dir = Path('cache') / 'step4'
+    still_paths = generate_all_clips(schedule_path, poem_dir, use_cache=True)
 
-    logger.info(f'\n✓ 클립 생성 완료: {len(clip_paths)}개')
-    for i, (clip, still) in enumerate(zip(clip_paths, still_paths)):
+    logger.info(f'\n✓ 정지 이미지 생성 완료: {len(still_paths)}개')
+    for i, still in enumerate(still_paths):
       logger.info(f'\nScene {i}:')
       logger.info(f'  Still: {Path(still).name}')
-      logger.info(f'  Clip: {Path(clip).name}')
-      if Path(clip).exists():
-        size_mb = Path(clip).stat().st_size / (1024 * 1024)
+      if Path(still).exists():
+        size_mb = Path(still).stat().st_size / (1024 * 1024)
         logger.info(f'  크기: {size_mb:.1f}MB')
 
     logger.info('\n' + '=' * 70)
