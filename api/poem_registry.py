@@ -71,12 +71,26 @@ class PoemRegistry:
       data[new_poem_id] = {
         'image_hash': image_hash,
         'original_filename': original_filename,
-        'created_at': datetime.now().isoformat()
+        'created_at': datetime.now().isoformat(),
+        'title': '',
+        'author': '',
+        'notion_page_id': None,
       }
       self._save(data)
 
       logger.info(f'신규 poem 생성: {new_poem_id}')
       return new_poem_id
+
+  def update_poem_info(self, poem_id: str, **kwargs) -> None:
+    """메타데이터 업데이트 (title, author, notion_page_id 등)"""
+    with self._lock:
+      data = self._load()
+      if poem_id in data:
+        data[poem_id].update(kwargs)
+        self._save(data)
+        logger.info(f'메타데이터 갱신: {poem_id}')
+      else:
+        logger.warning(f'메타데이터 갱신 대상 poem_id 없음: {poem_id}')
 
   def get_poem_dir(self, poem_id: str) -> Path:
     """poem_id로부터 캐시 폴더 경로 도출"""

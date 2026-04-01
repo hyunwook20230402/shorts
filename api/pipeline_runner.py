@@ -120,7 +120,7 @@ async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> st
     poem_dir = _get_poem_dir(task)
     logger.info(f'[Step 0] OCR 함수 호출 중: {image_path}')
     # 동기 함수를 직접 호출 (스레드풀 사용 안 함 - 이벤트 루프 데드락 방지)
-    result = extract_text_from_image(image_path, poem_dir=poem_dir, use_cache=use_cache)
+    result = extract_text_from_image(image_path, poem_dir, use_cache=use_cache)
     logger.info(f'[Step 0] OCR 완료: {len(result)}자')
 
     task = task_status_dict[task_id]
@@ -155,15 +155,26 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
     poem_dir = _get_poem_dir(task)
 
     # 동기 함수를 직접 호출
-    script_data, image_prompts = process_nlp(ocr_text, task_id, poem_dir=poem_dir, use_cache=use_cache)
+    script_data, image_prompts = process_nlp(ocr_text, poem_dir, task_id=task_id, use_cache=use_cache)
 
-    # NLP 결과 캐시 경로 저장 (step1_nlp의 get_cache_path 함수 사용)
-    from step1_nlp import get_cache_path
-    nlp_path = get_cache_path(poem_dir)
+    # NLP 결과 캐시 경로
+    nlp_path = poem_dir / 'step1_nlp.json'
 
     # 파일 존재 검증
     if not nlp_path.exists():
       raise RuntimeError(f'NLP 캐시 파일이 생성되지 않았습니다: {nlp_path}')
+
+    # 메타데이터 갱신: NLP 결과에서 title, author 추출
+    try:
+      nlp_data = json.loads(nlp_path.read_text(encoding='utf-8'))
+      PoemRegistry().update_poem_info(
+        task.poem_id,
+        title=nlp_data.get('title', ''),
+        author=nlp_data.get('author', ''),
+      )
+      logger.info(f'[Step 1] 메타데이터 갱신 완료: {task.poem_id}')
+    except Exception as metadata_err:
+      logger.warning(f'[Step 1] 메타데이터 갱신 실패 (무시): {metadata_err}')
 
     task = task_status_dict[task_id]
     task.nlp_cache_path = str(nlp_path).replace('\\', '/')

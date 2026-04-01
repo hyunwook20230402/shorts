@@ -35,6 +35,14 @@ async def upload_image(file: UploadFile = File(...)) -> UploadResponse:
     poem_id = PoemRegistry().find_or_create(image_hash, file.filename)
     logger.info(f'poem_id 부여: {poem_id}')
 
+    # poem_dir에 원본 이미지 복사
+    poem_dir = PoemRegistry().get_poem_dir(poem_id)
+    poem_dir.mkdir(parents=True, exist_ok=True)
+    original_dest = poem_dir / f'original{Path(file.filename).suffix}'
+    if not original_dest.exists():
+      original_dest.write_bytes(contents)
+      logger.info(f'원본 이미지 저장: {original_dest}')
+
     # 작업 상태 생성
     task_status = _create_task_status(task_id)
     task_status.uploaded_image_path = str(file_path)
