@@ -813,6 +813,8 @@ def generate_all_clips(
 
 
 if __name__ == '__main__':
+  import sys
+
   logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -826,19 +828,25 @@ if __name__ == '__main__':
   logger.info('Step 4: ComfyUI 클립 생성 테스트')
   logger.info('=' * 70)
 
+  # 파라미터 파싱
+  if len(sys.argv) < 2:
+    logger.error('✗ 사용법: python step4_clip.py <poem_dir>')
+    exit(1)
+
+  poem_dir = Path(sys.argv[1])
+
   # 1. ComfyUI 환경 확인
   if not cmd_check():
     logger.error('✗ ComfyUI 연결 실패')
     exit(1)
 
-  # 2. 최근 Step 3 스케줄 파일 탐색
-  schedule_files = sorted(Path('cache/step3').glob('*_schedule.json'))
-  if not schedule_files:
-    logger.error('✗ Step 3 스케줄 캐시 없음')
+  # 2. Step 3 스케줄 파일 로드
+  schedule_path = poem_dir / 'step3_schedule.json'
+  if not schedule_path.exists():
+    logger.error(f'✗ Step 3 스케줄 없음: {schedule_path}')
     exit(1)
 
-  schedule_path = str(schedule_files[-1])
-  logger.info(f'사용할 스케줄: {schedule_path}')
+  logger.info(f'사용할 스케줄: {schedule_path.name}')
 
   # 3. IP-Adapter 확인
   ipadapter_available = check_ipadapter_available()
@@ -847,8 +855,7 @@ if __name__ == '__main__':
   # 4. Step 4 실행
   try:
     logger.info('\n정지 이미지 생성 실행 중...')
-    poem_dir = Path('cache') / 'step4'
-    still_paths = generate_all_clips(schedule_path, poem_dir, use_cache=True)
+    still_paths = generate_all_clips(str(schedule_path), poem_dir, use_cache=True)
 
     logger.info(f'\n✓ 정지 이미지 생성 완료: {len(still_paths)}개')
     for i, still in enumerate(still_paths):

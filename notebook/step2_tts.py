@@ -18,11 +18,11 @@ load_dotenv(env_path)
 logger = logging.getLogger(__name__)
 
 # 환경변수
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY', '')
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # 기본값
 ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1'
 CACHE_DIR = Path('cache/step2')
-MAX_RETRIES = 3
+MAX_RETRIES = 2
 
 # 환경변수 로드 로깅
 if not ELEVENLABS_API_KEY:
@@ -538,13 +538,19 @@ if __name__ == '__main__':
     logger.error('✗ ElevenLabs API 연결 실패')
     exit(1)
 
-  # 2. 최근 Step 1 NLP 파일 탐색
-  nlp_files = sorted(Path('cache/step1').glob('*_nlp.json'))
-  if not nlp_files:
-    logger.error('✗ Step 1 NLP 캐시 없음')
+  # 2. poem_dir 인자 처리
+  import sys
+  if len(sys.argv) < 2:
+    logger.error('✗ 사용법: python step2_tts.py <poem_dir>')
     exit(1)
 
-  nlp_path = nlp_files[-1]
+  poem_dir = Path(sys.argv[1])
+  nlp_path = poem_dir / 'step1_nlp.json'
+
+  if not nlp_path.exists():
+    logger.error(f'✗ Step 1 NLP 캐시 없음: {nlp_path}')
+    exit(1)
+
   with open(nlp_path, 'r', encoding='utf-8') as f:
     nlp_data = json.load(f)
 
@@ -553,14 +559,19 @@ if __name__ == '__main__':
 
   # 3. Step 2 실행
   try:
-    logger.info('\nTTS 생성 실행 중...')
-    audio_paths, alignment_paths = generate_all_audio(script_data, use_cache=True)
+    logger.info('\nTTS 생성 실행 중...')    
+    
+    audio_paths, alignment_paths = generate_all_audio(
+      script_data=script_data, poem_dir=poem_dir, use_cache=True
+    )
 
-    logger.info(f'\n✓ TTS 생성 완료: {len(audio_paths)}개')
-    for i, (audio, alignment) in enumerate(zip(audio_paths, alignment_paths)):
-      logger.info(f'\nScene {i}:')
-      logger.info(f'  Audio: {Path(audio).name}')
-      logger.info(f'  Alignment: {Path(alignment).name}')
+    total_sentences = sum(len(scene_audios) for scene_audios in audio_paths)
+    logger.info(f'\n✓ TTS 생성 완료: {total_sentences}개 문장')
+    for scene_idx, (scene_audios, scene_alignments) in enumerate(zip(audio_paths, alignment_paths)):
+      logger.info(f'\nScene {scene_idx}:')
+      for sent_idx, (audio, alignment) in enumerate(zip(scene_audios, scene_alignments)):
+        logger.info(f'  문장 {sent_idx}: {Path(audio).name}')
+        logger.info(f'    Alignment: {Path(alignment).name}')
 
     logger.info('\n' + '=' * 70)
     logger.info('✓ Step 2 테스트 완료')

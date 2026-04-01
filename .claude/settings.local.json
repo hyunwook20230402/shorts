@@ -43,7 +43,8 @@
       "Bash(pkill *)",
       "Bash(kill *)",
       "Bash(xargs *)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(ruff check:*)"
     ]
   }
 }

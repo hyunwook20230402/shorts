@@ -390,6 +390,8 @@ def cmd_check() -> bool:
 
 
 if __name__ == '__main__':
+  import sys
+
   logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -403,42 +405,37 @@ if __name__ == '__main__':
   logger.info('Step 5: 최종 영상 합성 테스트')
   logger.info('=' * 70)
 
+  # 파라미터 파싱
+  if len(sys.argv) < 2:
+    logger.error('✗ 사용법: python step5_video.py <poem_dir>')
+    exit(1)
+
+  poem_dir = Path(sys.argv[1])
+
   # 1. 환경 확인
   if not cmd_check():
     logger.error('✗ 환경 확인 실패')
     exit(1)
 
   # 2. Step 4 이미지 파일 탐색
-  still_files = sorted(Path('cache').glob('*/*_still.png'))
+  still_files = sorted(poem_dir.glob('step4_*_still.png'))
   if not still_files:
-    logger.error('✗ Step 4 정지 이미지 캐시 없음')
+    logger.error(f'✗ Step 4 정지 이미지 없음: {poem_dir}')
     exit(1)
 
-  # 최신 그룹만 선택 (poem_id 기반)
-  still_by_group = {}
-  for f in still_files:
-    # 경로: cache/{poem_id}/step4_scene00_sent00_still.png
-    group_id = f.parent.name
-    if group_id not in still_by_group:
-      still_by_group[group_id] = []
-    still_by_group[group_id].append(str(f))
-
-  latest_group = max(still_by_group.keys())
-  still_paths = sorted(still_by_group[latest_group])
-
+  still_paths = sorted([str(f) for f in still_files])
   logger.info(f'정지 이미지: {len(still_paths)}개')
 
   # 3. Step 2 오디오/alignment 파일 탐색
-  audio_files = sorted(Path('cache/step2').glob('*_audio.mp3'))
-  alignment_files = sorted(Path('cache/step2').glob('*_alignment.json'))
+  audio_files = sorted(poem_dir.glob('step2_*_audio.mp3'))
+  alignment_files = sorted(poem_dir.glob('step2_*_alignment.json'))
 
   if not audio_files or not alignment_files:
-    logger.error('✗ Step 2 오디오/alignment 캐시 없음')
+    logger.error(f'✗ Step 2 오디오/alignment 없음: {poem_dir}')
     exit(1)
 
-  # 인덱스 번호 기준으로 정렬 (scene_idx_sent_idx)
-  audio_paths = [str(f) for f in sorted(audio_files, key=lambda f: int(f.stem.split('_')[1]))]
-  alignment_paths = [str(f) for f in sorted(alignment_files, key=lambda f: int(f.stem.split('_')[1]))]
+  audio_paths = sorted([str(f) for f in audio_files])
+  alignment_paths = sorted([str(f) for f in alignment_files])
 
   logger.info(f'오디오: {len(audio_paths)}개')
 
@@ -446,19 +443,16 @@ if __name__ == '__main__':
     logger.error(f'✗ 문장 개수 불일치: still={len(still_paths)}, audio={len(audio_paths)}')
     exit(1)
 
-  # Step 3 스케줄 파일 탐색
-  schedule_files = sorted(Path('cache').glob('*/*sentence_schedule.json'))
-  if not schedule_files:
-    logger.error('✗ Step 3 문장 스케줄 캐시 없음')
+  # 4. Step 3 스케줄 파일 로드
+  schedule_path = poem_dir / 'step3_schedule.json'
+  if not schedule_path.exists():
+    logger.error(f'✗ Step 3 스케줄 없음: {schedule_path}')
     exit(1)
 
-  schedule_path = str(schedule_files[-1])
-  poem_dir = schedule_files[-1].parent
-
-  # 4. Step 5 실행
+  # 5. Step 5 실행
   try:
     logger.info('\n최종 영상 합성 실행 중...')
-    output_path = compose_final_video(still_paths, audio_paths, schedule_path, poem_dir, use_cache=True)
+    output_path = compose_final_video(still_paths, audio_paths, str(schedule_path), poem_dir, use_cache=True)
 
     if Path(output_path).exists():
       size_mb = Path(output_path).stat().st_size / (1024 * 1024)

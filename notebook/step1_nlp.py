@@ -380,13 +380,10 @@ def call_hcx005_image_prompt(scene: dict) -> str:
   if not api_key:
     raise ValueError('NCP_CLOVA_API_KEY 환경변수가 설정되지 않았습니다.')
 
-  # modern_text 앞 100자만 사용
-  modern_text_summary = scene['modern_text'][:100]
-
   user_prompt = IMAGE_PROMPT_USER_PROMPT_PREFIX.format(
     emotion=scene['emotion'],
     background=scene['background'],
-    modern_text_summary=modern_text_summary,
+    modern_text=scene['modern_text'],
   )
 
   headers = {
@@ -663,22 +660,34 @@ if __name__ == '__main__':
     poem_id = txt_path.stem.replace('_ocr', '') 
     logger.info(f'Step 0 캐시에서 텍스트 자동 로드: {txt_path} (poem_id: {poem_id})')
   else:
-    # 파일 경로가 주어지면 파일 읽기, 아니면 직접 텍스트로 처리
+    # 인자가 poem_dir 폴더 경로인 경우
     arg = sys.argv[1]
-    txt_path = Path(arg)
+    poem_dir = Path(arg)
 
-    if txt_path.exists():
-      input_text = txt_path.read_text(encoding='utf-8')
-      # 파일명에서 poem_id 추출
-      poem_id = txt_path.stem.replace('_ocr', '')
-      logger.info(f'파일에서 텍스트 로드: {arg} (poem_id: {poem_id})')
-
+    if poem_dir.is_dir():
+      # poem_dir/step0_ocr.txt에서 OCR 텍스트 로드
+      ocr_file = poem_dir / 'step0_ocr.txt'
+      if ocr_file.exists():
+        input_text = ocr_file.read_text(encoding='utf-8')
+        poem_id = poem_dir.name  # "poem_01", "poem_02" 등
+        logger.info(f'poem_dir에서 OCR 텍스트 로드: {ocr_file} (poem_id: {poem_id})')
+      else:
+        logger.error(f'Step 0 캐시 파일 없음: {ocr_file}')
+        sys.exit(1)
     else:
-      input_text = arg
-      poem_id = f"text_{hashlib.md5(arg.encode()).hexdigest()[:8]}"
+      # 파일 경로가 주어진 경우
+      txt_path = poem_dir
+      if txt_path.exists() and txt_path.is_file():
+        input_text = txt_path.read_text(encoding='utf-8')
+        poem_id = txt_path.stem.replace('_ocr', '')
+        logger.info(f'파일에서 텍스트 로드: {arg} (poem_id: {poem_id})')
+      else:
+        # 직접 텍스트로 처리
+        input_text = arg
+        poem_id = f"text_{hashlib.md5(arg.encode()).hexdigest()[:8]}"
   
   try:
-    script_data, prompts = process_nlp(input_text, poem_id=poem_id)
+    script_data, prompts = process_nlp(input_text, poem_dir)
     print(f'\n=== NLP 처리 결과: {len(script_data)}씬 ===')
     for scene in script_data:
       print(f"\n[씬 {scene['scene_index']}] 감정: {scene['emotion']}")
