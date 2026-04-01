@@ -840,10 +840,10 @@ if __name__ == '__main__':
     logger.error('✗ ComfyUI 연결 실패')
     exit(1)
 
-  # 2. Step 3 스케줄 파일 로드
-  schedule_path = poem_dir / 'step3_schedule.json'
+  # 2. Step 3 문장 스케줄 파일 로드
+  schedule_path = poem_dir / 'step3_sentence_schedule.json'
   if not schedule_path.exists():
-    logger.error(f'✗ Step 3 스케줄 없음: {schedule_path}')
+    logger.error(f'✗ Step 3 문장 스케줄 없음: {schedule_path}')
     exit(1)
 
   logger.info(f'사용할 스케줄: {schedule_path.name}')

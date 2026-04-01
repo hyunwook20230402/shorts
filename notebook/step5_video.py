@@ -443,10 +443,10 @@ if __name__ == '__main__':
     logger.error(f'✗ 문장 개수 불일치: still={len(still_paths)}, audio={len(audio_paths)}')
     exit(1)
 
-  # 4. Step 3 스케줄 파일 로드
-  schedule_path = poem_dir / 'step3_schedule.json'
+  # 4. Step 3 문장 스케줄 파일 로드
+  schedule_path = poem_dir / 'step3_sentence_schedule.json'
   if not schedule_path.exists():
-    logger.error(f'✗ Step 3 스케줄 없음: {schedule_path}')
+    logger.error(f'✗ Step 3 문장 스케줄 없음: {schedule_path}')
     exit(1)
 
   # 5. Step 5 실행

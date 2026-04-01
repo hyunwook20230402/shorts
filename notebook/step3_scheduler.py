@@ -375,35 +375,49 @@ if __name__ == '__main__':
 
   script_data = nlp_data.get('modern_script_data', [])
 
-  # 3. alignment 파일 로드
-  alignment_paths = []
+  # 3. Step 2 오디오/alignment 파일 로드
+  sentence_audio_paths = []
+  sentence_alignment_paths = []
   for scene_idx in range(len(script_data)):
+    scene_audios = []
+    scene_alignments = []
     for sent_idx in range(len(script_data[scene_idx].get('modern_sentences', []))):
+      audio_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
       alignment_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
-      if not alignment_path.exists():
-        logger.error(f'✗ Alignment 파일 없음: {alignment_path}')
+      if not audio_path.exists() or not alignment_path.exists():
+        logger.error(f'✗ 오디오/alignment 파일 없음: {audio_path}, {alignment_path}')
         exit(1)
-      alignment_paths.append(str(alignment_path))
+      scene_audios.append(str(audio_path))
+      scene_alignments.append(str(alignment_path))
+    sentence_audio_paths.append(scene_audios)
+    sentence_alignment_paths.append(scene_alignments)
 
   logger.info(f'NLP: {len(script_data)}개 씬')
-  logger.info(f'Alignment: {len(alignment_paths)}개')
+  total_sentences = sum(len(audios) for audios in sentence_audio_paths)
+  logger.info(f'오디오: {total_sentences}개 문장')
 
-  # 4. Step 3 실행
+  # 4. Step 3 실행 (문장 단위 스케줄)
   try:
     logger.info('\n스케줄 생성 실행 중...')
-    schedule_path = build_frame_schedules(script_data, alignment_paths, poem_dir=poem_dir, use_cache=True)
+    schedule_path = build_sentence_schedules(
+      script_data,
+      sentence_audio_paths,
+      sentence_alignment_paths,
+      poem_dir=poem_dir,
+      use_cache=True
+    )
 
     logger.info('\n✓ 스케줄 생성 완료')
     logger.info(f'  파일: {Path(schedule_path).name}')
 
     with open(schedule_path, 'r', encoding='utf-8') as f:
       schedule_data = json.load(f)
-    schedules = schedule_data.get('scene_schedules', [])
+    schedules = schedule_data.get('sentence_schedules', [])
     for s in schedules:
       scene_idx = s['scene_index']
-      total_frames = s['total_frames']
-      duration = total_frames / 10
-      logger.info(f'  Scene {scene_idx}: {total_frames} frames ({duration:.1f}초)')
+      sent_idx = s['sent_index']
+      duration = s['duration']
+      logger.info(f'  Scene {scene_idx}, Sent {sent_idx}: {duration:.2f}초')
 
     logger.info('\n' + '=' * 70)
     logger.info('✓ Step 3 테스트 완료')
