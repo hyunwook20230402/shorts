@@ -27,9 +27,8 @@ SUBTITLE_FONT_PATH = Path(os.getenv('SUBTITLE_FONT_PATH', 'C:/Windows/Fonts/malg
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FPS = 30  # 10fps → 30fps 업스케일
-SUBTITLE_FONT_SIZE = 40
-SUBTITLE_COLOR = 'white'
-SUBTITLE_BG_COLOR = (0, 0, 0, 200)  # RGBA: 반투명 검은색
+SUBTITLE_FONT_SIZE = 48
+SUBTITLE_COLOR = (255, 255, 255)  # RGB white
 
 
 def get_cache_path(poem_dir: Path) -> Path:
@@ -59,36 +58,76 @@ def load_alignment_data(alignment_path: str) -> dict:
     return {'sentences': [], 'total_duration': 0}
 
 
-def make_subtitle_clips(text: str, duration: float, start_time: float) -> list:
+def render_subtitle_image(text: str, canvas_width: int, canvas_height: int):
   """
-  자막 텍스트 클립 + 배경 박스 클립 생성.
-  두 클립 모두 start_time과 화면 절대 좌표를 가지므로
-  최종 CompositeVideoClip에 바로 추가 가능.
+  PIL로 자막 텍스트를 RGBA 이미지로 렌더링.
+  배경 없이 흰색 텍스트만, 캔버스 크기는 canvas_width × canvas_height.
+  텍스트는 세로 85% 위치에 가로 가운데 정렬.
   """
-  from moviepy.editor import TextClip
+  import numpy as np
+  from PIL import Image, ImageDraw, ImageFont
 
-  txt_clip = TextClip(
-    text,
-    fontsize=SUBTITLE_FONT_SIZE,
-    color=SUBTITLE_COLOR,
-    font=str(SUBTITLE_FONT_PATH),
-    method='caption',
-    size=(int(OUTPUT_WIDTH * 0.85), None),
-    align='Center',
-  ).set_duration(duration).set_start(start_time)
+  img = Image.new('RGBA', (canvas_width, canvas_height), (0, 0, 0, 0))
+  draw = ImageDraw.Draw(img)
 
-  # 텍스트 실제 크기 기반 배경 박스
-  bg_clip = ColorClip(
-    size=(txt_clip.w + 40, txt_clip.h + 20),
-    color=(0, 0, 0),
-  ).set_opacity(0.6).set_duration(duration).set_start(start_time)
+  # 폰트 로드
+  try:
+    font = ImageFont.truetype(str(SUBTITLE_FONT_PATH), SUBTITLE_FONT_SIZE)
+  except Exception:
+    font = ImageFont.load_default()
+    logger.warning('자막 폰트 로드 실패, 기본 폰트 사용')
 
-  # 화면 세로 85% 위치에 가운데 정렬
-  y_pos = int(OUTPUT_HEIGHT * 0.85)
-  bg_clip = bg_clip.set_position(('center', y_pos))
-  txt_clip = txt_clip.set_position(('center', y_pos + 10))
+  # 텍스트 줄바꿈 (최대 너비 기준)
+  max_text_width = int(canvas_width * 0.85)
+  lines = []
+  for paragraph in text.split('\n'):
+    words = list(paragraph)  # 한국어는 글자 단위
+    current_line = ''
+    for ch in words:
+      test_line = current_line + ch
+      bbox = draw.textbbox((0, 0), test_line, font=font)
+      if bbox[2] - bbox[0] > max_text_width and current_line:
+        lines.append(current_line)
+        current_line = ch
+      else:
+        current_line = test_line
+    if current_line:
+      lines.append(current_line)
 
-  return [bg_clip, txt_clip]
+  if not lines:
+    return np.array(img)
+
+  # 전체 텍스트 블록 높이 계산
+  line_height = draw.textbbox((0, 0), '가', font=font)[3] + 8
+  total_text_height = line_height * len(lines)
+
+  # 세로 85% 위치 기준 가운데 정렬
+  y_center = int(canvas_height * 0.85)
+  y_start = y_center - total_text_height // 2
+
+  for line in lines:
+    bbox = draw.textbbox((0, 0), line, font=font)
+    line_width = bbox[2] - bbox[0]
+    x = (canvas_width - line_width) // 2
+    # 흰색 텍스트 + 얇은 검은 외곽선 (가독성)
+    for dx, dy in [(-2, -2), (2, -2), (-2, 2), (2, 2)]:
+      draw.text((x + dx, y_start + dy), line, font=font, fill=(0, 0, 0, 200))
+    draw.text((x, y_start), line, font=font, fill=(*SUBTITLE_COLOR, 255))
+    y_start += line_height
+
+  return np.array(img)
+
+
+def make_subtitle_clip(text: str, duration: float, start_time: float) -> ImageClip:
+  """PIL로 렌더링한 자막 이미지를 MoviePy ImageClip으로 반환"""
+  arr = render_subtitle_image(text, OUTPUT_WIDTH, OUTPUT_HEIGHT)
+  clip = (
+    ImageClip(arr, ismask=False)
+    .set_duration(duration)
+    .set_start(start_time)
+    .set_position((0, 0))
+  )
+  return clip
 
 
 def concatenate_clips(
@@ -134,7 +173,7 @@ def concatenate_clips(
 
 
 def add_subtitles_to_video(video_clip, sentence_schedules: list[dict]):
-  """이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음"""
+  """이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음 (PIL 기반)"""
   subtitle_clips = []
   current_time = 0.0
 
@@ -143,7 +182,8 @@ def add_subtitles_to_video(video_clip, sentence_schedules: list[dict]):
     duration = entry.get('duration', 0.0)
 
     if text and duration > 0:
-      subtitle_clips.extend(make_subtitle_clips(text, duration, current_time))
+      sub = make_subtitle_clip(text, duration, current_time)
+      subtitle_clips.append(sub)
 
     current_time += duration
 
@@ -151,7 +191,7 @@ def add_subtitles_to_video(video_clip, sentence_schedules: list[dict]):
     logger.warning('자막 클립이 없습니다')
     return video_clip
 
-  logger.info('자막 클립 %d개 생성 완료', len(subtitle_clips) // 2)
+  logger.info('자막 클립 %d개 생성 완료', len(subtitle_clips))
   return CompositeVideoClip([video_clip] + subtitle_clips, size=video_clip.size)
 
 
