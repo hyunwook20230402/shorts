@@ -29,75 +29,47 @@ logging.basicConfig(
 
 HCX005_API_URL = 'https://clovastudio.stream.ntruss.com/v1/openai/chat/completions'
 
-# 웹툰 스타일 프롬프트 prefix (모든 씬에 동일하게 적용)
-WEBTOON_STYLE_PREFIX = (
-  'Korean webtoon style, manhwa art style, '
-  'traditional Korean ink painting influence, '
-  'cinematic composition, detailed background, '
-  '9:16 vertical format, high quality illustration, '
+webtoon_style_prefix = (
+    'Korean webtoon style, manhwa art style, '
+    'traditional Korean ink painting influence, '
+    'cinematic composition, detailed background, '
+    '9:16 vertical format, high quality illustration, '
 )
 
-# 번역 + 씬 분할 시스템 프롬프트
-TRANSLATE_SYSTEM_PROMPT = """당신은 한국 고전시가 전문 번역가이자 영상 대본 작가입니다.
-주어진 고전시가 원문을 분석하여 씬 단위로 분할하고, 각 씬을 현대어로 번역한 후
-웹툰 영상 쇼츠용 대본 데이터를 JSON 형식으로 출력하세요.
+translate_system_prompt = """당신은 한국 고전시가 번역가이자 웹툰 쇼츠 대본 작가입니다.
+원문을 분석하여 문장 단위로 씬을 분할하고 JSON을 출력하세요.
 
-## 씬 분할 규칙
-1. 씬을 문장 단위로 분할하세요.
-2. (중략) 표지가 있다면 별도 씬으로 처리하지 말고 제외하세요.
-3. 출처([출처] 태그)와 각주([각주] 태그)는 씬에 포함하지 마세요.
+## 규칙
+1. 1구절 = 1씬. 의미 완결 단위로 최대한 상세히 분할.
+2. modern_text: 정확히 1개 완결 구어체 문장 (10대 톤, 2문장 혼합 금지)
+3. narration: TTS 낭독용 감성 독백 톤 (도발적, 10대 구어체. 예: "한때는 나도 임금님 최애였는데, 다 부질없네.")
+4. emotion: 핵심 감정 한 단어 (예: 비장, 쾌활, 슬픔, 고독)
+5. main_focus: "background"/"character"/"object" 중 택 1
+6. visual_elements: {background, character, object, atmosphere} 영어 키워드
+7. title, author: 빈칸 없이 채울 것 (미상 가능)
 
-## 각 씬 데이터 규칙
-- original_text: 원문 그대로 (줄바꿈 \n 보존)
-- modern_text: 현대어 구어체 번역 (CRITICAL: 반드시 일상 구어체, 문어체/경어 금지. 예시 금지: "임금님께서 정사를 돌보셨습니다." 예시 허용: "임금이 정사를 돌봤어. 나라가 조용하고 평화로웠지." 마침표로 종결되는 2~4개의 완결 문장으로 구성)
-- narration: TTS용 낭독 대사 (modern_text 기반, 3~5문장, 자연스러운 구어체)
-- emotion: 씬의 핵심 감정 한 단어 (예: 비장, 쾌활, 슬픔, 고독, 풍류, 억울, 유머)
-- background: 씬의 배경 장소/상황 설명 (한국어 2~3문장, 이미지 생성 참고용)
+## 출력 형식 (JSON만 출력, 설명 금지)
+{"title":"...","author":"...","total_scenes":N,"scenes":[{"scene_index":1,"original_text":"...","modern_text":"...","narration":"...","emotion":"...","main_focus":"...","visual_elements":{"background":"...","character":"...","object":"...","atmosphere":"..."},"image_prompt":""}]}
+"""
 
-## 역사적 배경 컨텍스트 활용 규칙
-아래 역사적 배경이 제공되면 나레이션, 배경, 감정에 반영하세요:
-- narration: 당시의 구체적 지역, 시대적 환경, 어려움을 자연스럽게 반영
-- background: 함경도, 조선시대 등 지명/시대를 명시적으로 포함하여 작성
-- emotion: 단순 상태(감사함)가 아닌 구체적 변화와 심리 상태 포착 (예: 의문→놀람→감사)
-- image_prompt: 지역의 척박한 환경, 당시 의복, 계절감을 포함하여 작성
+translate_user_prompt_prefix = '다음 고전시가 원문을 분석하여 씬 분할 및 현대어 번역 JSON을 생성하세요.'
 
-## 출력 형식
-반드시 아래 JSON 형식만 출력하세요. 마크다운 코드블록, 설명 텍스트 절대 금지.
-{
-  "title": "시 제목 (원문에서 추출, 없으면 빈 문자열)",
-  "author": "작가명 (없으면 빈 문자열)",
-  "total_scenes": 씬 수 (정수),
-  "scenes": [
-    {
-      "scene_index": 1,
-      "original_text": "...",
-      "modern_text": "...",
-      "narration": "...",
-      "emotion": "...",
-      "background": "..."
-    }
-  ]
-}"""
-
-TRANSLATE_USER_PROMPT_PREFIX = '다음 고전시가 원문을 분석하여 씬 분할 및 현대어 번역 JSON을 생성하세요.'
-
-# 이미지 프롬프트 생성 시스템 프롬프트
-IMAGE_PROMPT_SYSTEM_PROMPT = """당신은 ComfyUI 이미지 생성 전문가입니다.
+# 하드코딩된 '조선시대'를 제거하고 동적 컨텍스트를 받도록 수정
+image_prompt_system_prompt = """당신은 ComfyUI 이미지 생성 전문가입니다.
 한국 고전시가 웹툰 영상을 위한 씬 이미지 프롬프트를 영어로 생성하세요.
 
 ## 프롬프트 생성 규칙
-1. 출력은 반드시 영어 프롬프트 텍스트 한 줄만 출력하세요. JSON, 설명, 마크다운 금지.
+1. 출력은 반드시 영어 프롬프트 텍스트 한 줄만 출력하세요. (JSON, 설명, 마크다운 절대 금지)
 2. 씬의 배경 장소, 계절/날씨, 등장인물 행동을 구체적으로 묘사하세요.
 3. 감정(emotion)을 lighting과 color tone으로 표현하세요:
    - 비장/슬픔: dark blue tones, dramatic lighting, heavy atmosphere
    - 쾌활/유머: warm golden light, bright colors, lively atmosphere
    - 고독: muted tones, sparse composition, solitary figure
-   - 풍류: soft natural light, flowing composition, poetic atmosphere
-   - 억울: cold gray tones, tense atmosphere, low angle
-4. 조선시대 배경을 유지하세요 (의복, 건물, 자연 환경).
+4. 제공된 역사적 배경(historical_context)을 바탕으로 해당 시대(예: 고려, 조선 등)에 맞는 의복과 건축 양식을 묘사하세요.
 5. 200 토큰 이내로 작성하세요."""
 
-IMAGE_PROMPT_USER_PROMPT_PREFIX = """씬 정보:
+image_prompt_user_prompt_prefix = """씬 정보:
+- 시대적/역사적 배경: {historical_context}
 - 감정: {emotion}
 - 배경 설명 (한국어): {background}
 - 현대어 내용: {modern_text}
@@ -211,18 +183,27 @@ def split_into_sentences(text: str) -> list[str]:
 
 
 def validate_scene(raw_scene: dict, idx: int, historical_context: str = '') -> dict:
-  """씬 필드 유효성 검사 + 기본값 보완"""
+  """
+  씬 데이터 유효성 검사 및 정규화.
+
+  불변 조건: 1씬 = 1문장 (modern_sentences는 항상 [modern_text] 1개 원소 리스트)
+  """
   modern_text = raw_scene.get('modern_text', '')
+
   base = {
-    'scene_index': raw_scene.get('scene_index', idx + 1),
+    'scene_index': idx + 1,
     'original_text': raw_scene.get('original_text', ''),
     'modern_text': modern_text,
-    'modern_sentences': split_into_sentences(modern_text),  # 신규: 문장 분리
-    'sentence_image_prompts': [],  # 신규: 문장별 이미지 프롬프트
+    'modern_sentences': [modern_text],
+    'sentence_image_prompts': [],
     'narration': raw_scene.get('narration', modern_text),
     'emotion': raw_scene.get('emotion', '미정'),
-    'background': raw_scene.get('background', ''),
-    'image_prompt': '',  # 하위호환: 첫 문장 프롬프트로 채움
+    'main_focus': raw_scene.get('main_focus', 'background'),
+    'visual_elements': raw_scene.get('visual_elements', {}),
+    'background': raw_scene.get('background',
+      raw_scene.get('visual_elements', {}).get('background', 'traditional Korean landscape')),
+    'background_weight': 1.0,
+    'image_prompt': '',
     'historical_context': historical_context,
   }
   return base
@@ -264,9 +245,9 @@ def fetch_historical_context(raw_text: str, poem_dir: Path) -> str:
     'model': 'HCX-005',
     'messages': [
       {'role': 'system', 'content': system_prompt},
-      {'role': 'user', 'content': f'다음 고전시가의 역사적 배경을 요약해주세요:\n\n{raw_text}'},
+      {'role': 'user', 'content': f'다음 고전시가의 역사적 배경을 요약해주세요:\n\n{raw_text:500}'},
     ],
-    'max_tokens': 500,
+    'max_tokens': 1000,
     'temperature': 0.3,
   }
 
@@ -297,7 +278,6 @@ def fetch_historical_context(raw_text: str, poem_dir: Path) -> str:
     logger.warning('역사적 배경 조사 API 호출 실패: %s', str(e))
     return ''
 
-
 @retry(
   stop=stop_after_attempt(3),
   wait=wait_exponential(multiplier=1, min=2, max=30),
@@ -317,9 +297,9 @@ def call_hcx005_translate(text: str, historical_context: str = '') -> dict:
   }
 
   # 역사적 배경이 있으면 시스템 프롬프트에 추가
-  system_content = TRANSLATE_SYSTEM_PROMPT
+  system_content = translate_system_prompt
   if historical_context.strip():
-    system_content += f'\n\n## 역사적 배경 참고 (나레이션 작성 시 활용)\n{historical_context}'
+    system_content += f'\n\n## 역사적 배경 참고 (나레이션/메타데이터 작성 시 활용)\n{historical_context}'
 
   payload = {
     'model': 'HCX-005',
@@ -330,10 +310,10 @@ def call_hcx005_translate(text: str, historical_context: str = '') -> dict:
       },
       {
         'role': 'user',
-        'content': f'{TRANSLATE_USER_PROMPT_PREFIX}\n\n{text}',
+        'content': f'{translate_user_prompt_prefix}\n\n{text}',
       },
     ],
-    'max_tokens': 4000,
+    'max_tokens': 4096,
     'temperature': 0.3,
   }
 
@@ -372,15 +352,16 @@ def call_hcx005_translate(text: str, historical_context: str = '') -> dict:
   wait=wait_exponential(multiplier=1, min=2, max=30),
   reraise=True,
 )
-def call_hcx005_image_prompt(scene: dict) -> str:
-  """HCX-005로 씬별 이미지 프롬프트 생성 (영문)"""
+def call_hcx005_image_prompt(scene: dict, historical_context: str) -> str:
+  """HCX-005로 씬별 이미지 프롬프트 생성 (역사적 배경 동적 주입)"""
   logger.info('이미지 프롬프트 생성 중: 씬 %d', scene['scene_index'])
 
   api_key = os.environ.get('NCP_CLOVA_API_KEY')
   if not api_key:
     raise ValueError('NCP_CLOVA_API_KEY 환경변수가 설정되지 않았습니다.')
 
-  user_prompt = IMAGE_PROMPT_USER_PROMPT_PREFIX.format(
+  user_prompt = image_prompt_user_prompt_prefix.format(
+    historical_context=historical_context,
     emotion=scene['emotion'],
     background=scene['background'],
     modern_text=scene['modern_text'],
@@ -396,7 +377,7 @@ def call_hcx005_image_prompt(scene: dict) -> str:
     'messages': [
       {
         'role': 'system',
-        'content': IMAGE_PROMPT_SYSTEM_PROMPT,
+        'content': image_prompt_system_prompt,
       },
       {
         'role': 'user',
@@ -425,6 +406,7 @@ def call_hcx005_image_prompt(scene: dict) -> str:
   except requests.exceptions.RequestException as e:
     logger.error('이미지 프롬프트 생성 실패 (씬 %d): %s', scene['scene_index'], str(e))
     raise RuntimeError(f'이미지 프롬프트 생성 중 오류: {str(e)}') from e
+
 
 
 # ===== Notion API 연동 =====
@@ -581,52 +563,66 @@ def process_nlp(
       for i, s in enumerate(raw_scenes)
     ]
 
-    # 7. 각 씬의 문장별 이미지 프롬프트 생성
-    image_prompts: list = []
+# 7. 각 씬(문장)의 이미지 프롬프트 생성
+    image_prompts = []
     for i, scene in enumerate(validated_scenes):
-      logger.info('문장별 이미지 프롬프트 생성 중: 씬 %d/%d (%d문장)', i + 1, len(validated_scenes), len(scene['modern_sentences']))
-      sentence_prompts = []
-      for sent_idx, sentence_text in enumerate(scene['modern_sentences']):
-        # 씬 감정/배경 + 문장 텍스트를 조합하여 프롬프트 생성
+        # ✅ 체크 1: 루프의 인덱스(i)를 사용하여 강제로 순차적인 씬 번호 부여
+        current_scene_idx = i + 1
+        logger.info(f'이미지 프롬프트 생성 중: 씬 {current_scene_idx}/{len(validated_scenes)}')
+        
+        # ✅ 체크 2: 모든 필드를 .get()으로 안전하게 가져옴
+        sentence_text = scene.get('modern_text', '')
+        
         sentence_scene_ctx = {
-          'scene_index': scene['scene_index'],
-          'emotion': scene['emotion'],
-          'background': scene['background'],
-          'modern_text': sentence_text,
-        }
+            'scene_index': current_scene_idx, # 보장된 인덱스 사용
+            'emotion': scene.get('emotion', 'serene'),
+            'background': scene.get('background', 'ancient Korean scenery'),
+            'modern_text': sentence_text,
+            'main_focus': scene.get('main_focus', 'background'),
+            'visual_elements': scene.get('visual_elements', {})
+        }  
+        
         try:
-          prompt = call_hcx005_image_prompt(sentence_scene_ctx)
-          final_prompt = f'{WEBTOON_STYLE_PREFIX}{prompt}'
+            # LLM 호출하여 영문 프롬프트 생성
+            prompt = call_hcx005_image_prompt(sentence_scene_ctx, historical_context)
+            final_prompt = f"{prompt}, {webtoon_style_prefix}"
         except Exception as e:
-          logger.warning('씬 %d 문장 %d 프롬프트 생성 실패: %s', i + 1, sent_idx + 1, str(e))
-          final_prompt = f'{WEBTOON_STYLE_PREFIX}Korean traditional scene, {scene["emotion"]} mood, historical atmosphere'
-        sentence_prompts.append(final_prompt)
-      scene['sentence_image_prompts'] = sentence_prompts
-      # 하위호환성: 첫 문장 프롬프트를 scene['image_prompt']에도 유지
-      scene['image_prompt'] = sentence_prompts[0] if sentence_prompts else ''
-      image_prompts.append(scene['image_prompt'])
+            logger.warning(f"씬 {current_scene_idx} 프롬프트 생성 실패, fallback 적용: {e}")
+            # 예외 시에도 감정 데이터를 안전하게 가져옴
+            curr_emotion = scene.get('emotion', 'serene')
+            final_prompt = f"({curr_emotion} mood:1.3), Korean traditional scene, {webtoon_style_prefix}"
+        
+        # ✅ 체크 3: 1씬 1문장 원칙에 따라 데이터 구조 확정
+        scene['scene_index'] = current_scene_idx # 씬 번호 업데이트
+        scene['sentence_image_prompts'] = [final_prompt]
+        scene['image_prompt'] = final_prompt
+        image_prompts.append(final_prompt)
 
+    # 8. 데이터 통합 및 물리적 파일 저장 (Step 2, 3 연결용)
     modern_script_data = validated_scenes
+    
+    # 하위 단계 파일 참조를 위해 JSON 파일로 저장
+    output_json_path = poem_dir / 'step1_nlp.json'
+    with open(output_json_path, 'w', encoding='utf-8') as f:
+        json.dump({'scenes': modern_script_data}, f, ensure_ascii=False, indent=2)
 
-    # 8. 캐시 저장 (use_cache 여부와 무관하게 항상 저장 — 하위 단계에서 파일 필요)
+    # 9. 캐시 저장
     save_to_cache(cache_path, {
-      'modern_script_data': modern_script_data,
-      'image_prompts': image_prompts,
-      'title': translation_result.get('title', ''),
-      'author': translation_result.get('author', ''),
+        'modern_script_data': modern_script_data,
+        'image_prompts': image_prompts,
+        'title': translation_result.get('title', ''),
+        'author': translation_result.get('author', ''),
     })
 
-    # 9. Notion: poem_translation_log 기록
+    # 10. Notion: 기록 및 상태 업데이트
     log_to_notion_poem(extracted_raw_text, modern_script_data, task_id)
-
-    # 10. Notion: 완료 상태 업데이트
     update_notion_task_status(
-      task_id, step=1,
-      message=f'NLP 처리 완료 ({len(modern_script_data)}씬)',
-      status='completed',
+        task_id, step=1,
+        message=f'NLP 처리 완료 ({len(modern_script_data)}씬)',
+        status='completed',
     )
 
-    logger.info('Step 1 NLP 완료. 씬 수: %d', len(modern_script_data))
+    logger.info('Step 1 NLP 완료. 씬 수: %d, 파일 저장: %s', len(modern_script_data), output_json_path)
     return modern_script_data, image_prompts
 
   except Exception as e:

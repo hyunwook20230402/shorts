@@ -11,7 +11,7 @@ from step0_ocr import extract_text_from_image
 from step1_nlp import process_nlp
 from step2_tts import generate_all_audio as elevenlabs_generate_all_v3
 from step3_scheduler import build_sentence_schedules
-from step4_clip import generate_all_clips
+from step4_image import generate_all_images
 from step5_video import compose_final_video
 
 from api.models import StepStatusEnum, TaskStatus
@@ -206,7 +206,7 @@ async def run_step2_audio(task_id: str, script_data: list[dict], use_cache: bool
   try:
     poem_dir = _get_poem_dir(task)
     # 문장 단위 TTS: [씬][문장] 2차원 리스트 반환
-    sentence_audio_paths, sentence_alignment_paths = elevenlabs_generate_all_v3(
+    sentence_audio_paths, sentence_alignment_paths = await elevenlabs_generate_all_v3(
       script_data, poem_dir=poem_dir, use_cache=use_cache
     )
 
@@ -289,7 +289,7 @@ async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: 
   try:
     poem_dir = _get_poem_dir(task)
     # generate_all_clips()는 이제 still_image_paths 리스트만 반환
-    still_image_paths = generate_all_clips(
+    still_image_paths = generate_all_images(
       sentence_schedule_path,
       poem_dir,
       use_cache=use_cache

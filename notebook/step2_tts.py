@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import requests
+# import requests  # [ElevenLabs] ElevenLabs API 사용 시 활성화
+import edge_tts
 from dotenv import load_dotenv
 
 # .env 파일 명시적 로드
@@ -18,17 +19,17 @@ load_dotenv(env_path)
 logger = logging.getLogger(__name__)
 
 # 환경변수
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
-ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # 기본값
-ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1'
+# [ElevenLabs] 아래 변수는 ElevenLabs 사용 시 활성화
+# ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
+# ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # 기본값
+# ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1'
+
+EDGE_TTS_VOICE = os.getenv('EDGE_TTS_VOICE', 'ko-KR-SunHiNeural')
 CACHE_DIR = Path('cache/step2')
 MAX_RETRIES = 2
 
 # 환경변수 로드 로깅
-if not ELEVENLABS_API_KEY:
-  logger.warning(f'ELEVENLABS_API_KEY not set. env_path={env_path}')
-else:
-  logger.info(f'ELEVENLABS_API_KEY loaded: {ELEVENLABS_API_KEY[:20]}...')
+logger.info(f'edge-tts 음성: {EDGE_TTS_VOICE}')
 
 
 def get_cache_path(poem_dir: Path, idx: int, suffix: str) -> Path:
@@ -105,110 +106,135 @@ def group_alignment_into_words(character_times: list[dict]) -> list[dict]:
   return words
 
 
-def group_alignment_into_sentences(words: list[dict], text: str) -> list[dict]:
-  """
-  word 레벨 타임스탬프 → sentence 레벨 그룹핑
-  마침표/느낌표/쉼표 기준으로 분리
-  """
-  sentences = []
-  current_text = ''
-  sentence_start = None
-  word_idx = 0
+# =====================================================================
+# [ElevenLabs] 아래 코드는 ElevenLabs API 사용 시 주석 해제
+# =====================================================================
+# def group_alignment_into_sentences(words: list[dict], text: str) -> list[dict]:
+#   """
+#   word 레벨 타임스탬프 → sentence 레벨 그룹핑
+#   마침표/느낌표/쉼표 기준으로 분리
+#   """
+#   sentences = []
+#   current_text = ''
+#   sentence_start = None
+#   word_idx = 0
+#
+#   for char in text:
+#     if sentence_start is None and word_idx < len(words):
+#       sentence_start = words[word_idx]['start']
+#
+#     current_text += char
+#
+#     if char in '。!？！?':
+#       if current_text.strip():
+#         sentence_end = words[word_idx]['end'] if word_idx < len(words) else 0
+#         sentences.append({
+#           'text': current_text.strip(),
+#           'start': sentence_start,
+#           'end': sentence_end
+#         })
+#         current_text = ''
+#         sentence_start = None
+#
+#     if char == ' ':
+#       word_idx += 1
+#
+#   # 남은 텍스트 처리
+#   if current_text.strip() and word_idx < len(words):
+#     sentences.append({
+#       'text': current_text.strip(),
+#       'start': sentence_start,
+#       'end': words[-1]['end'] if words else 0
+#     })
+#
+#   return sentences
+# =====================================================================
 
-  for char in text:
-    if sentence_start is None and word_idx < len(words):
-      sentence_start = words[word_idx]['start']
 
-    current_text += char
+# =====================================================================
+# [ElevenLabs] 아래 코드는 ElevenLabs API 사용 시 주석 해제
+# =====================================================================
+# def call_elevenlabs_api(narration: str, voice_id: str) -> bytes:
+#   """
+#   ElevenLabs API 호출 (Free 버전 대응)
+#   반환: audio_bytes
+#
+#   Note: Free 버전은 with-timestamps 미지원이므로 기본 TTS만 사용
+#   Free 티어용 output_format 고정: mp3_44100_128
+#   """
+#   if not ELEVENLABS_API_KEY:
+#     raise ValueError('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
+#
+#   # Free 버전: 기본 TTS 엔드포인트 사용
+#   url = f'{ELEVENLABS_API_URL}/text-to-speech/{voice_id}'
+#   headers = {
+#     'xi-api-key': ELEVENLABS_API_KEY,
+#     'Content-Type': 'application/json'
+#   }
+#   body = {
+#     'text': narration,
+#     'model_id': 'eleven_multilingual_v2',
+#     'output_format': 'mp3_44100_128',  # Free 티어용 포맷 고정
+#     'voice_settings': {
+#       'stability': 0.5,
+#       'similarity_boost': 0.75
+#     }
+#   }
+#
+#   for attempt in range(MAX_RETRIES):
+#     try:
+#       response = requests.post(url, json=body, headers=headers, timeout=30)
+#       if response.status_code == 200:
+#         # 직접 바이너리 응답 (JSON이 아님)
+#         return response.content
+#
+#       elif response.status_code == 401:
+#         logger.error('ElevenLabs API 인증 실패 (유효하지 않은 API 키)')
+#         raise ValueError('ELEVENLABS_API_KEY가 유효하지 않습니다')
+#
+#       elif response.status_code == 429:
+#         logger.warning(f'ElevenLabs API 비율 제한, 재시도 {attempt + 1}/{MAX_RETRIES}')
+#         if attempt < MAX_RETRIES - 1:
+#           import time
+#           time.sleep(2 ** attempt)
+#           continue
+#         raise RuntimeError('ElevenLabs API 비율 제한 초과')
+#
+#       else:
+#         logger.error(f'ElevenLabs API 오류: {response.status_code} {response.text}')
+#         if attempt < MAX_RETRIES - 1:
+#           import time
+#           time.sleep(2 ** attempt)
+#           continue
+#         raise RuntimeError(f'ElevenLabs API 오류: {response.status_code}')
+#
+#     except requests.RequestException as e:
+#       logger.error(f'ElevenLabs API 호출 실패: {e}, 재시도 {attempt + 1}/{MAX_RETRIES}')
+#       if attempt < MAX_RETRIES - 1:
+#         import time
+#         time.sleep(2 ** attempt)
+#         continue
+#       raise
+#
+#   raise RuntimeError('ElevenLabs API 호출 최대 재시도 횟수 초과')
+# =====================================================================
 
-    if char in '。!？！?':
-      if current_text.strip():
-        sentence_end = words[word_idx]['end'] if word_idx < len(words) else 0
-        sentences.append({
-          'text': current_text.strip(),
-          'start': sentence_start,
-          'end': sentence_end
-        })
-        current_text = ''
-        sentence_start = None
 
-    if char == ' ':
-      word_idx += 1
-
-  # 남은 텍스트 처리
-  if current_text.strip() and word_idx < len(words):
-    sentences.append({
-      'text': current_text.strip(),
-      'start': sentence_start,
-      'end': words[-1]['end'] if words else 0
-    })
-
-  return sentences
-
-
-def call_elevenlabs_api(narration: str, voice_id: str) -> bytes:
-  """
-  ElevenLabs API 호출 (Free 버전 대응)
-  반환: audio_bytes
-
-  Note: Free 버전은 with-timestamps 미지원이므로 기본 TTS만 사용
-  Free 티어용 output_format 고정: mp3_44100_128
-  """
-  if not ELEVENLABS_API_KEY:
-    raise ValueError('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
-
-  # Free 버전: 기본 TTS 엔드포인트 사용
-  url = f'{ELEVENLABS_API_URL}/text-to-speech/{voice_id}'
-  headers = {
-    'xi-api-key': ELEVENLABS_API_KEY,
-    'Content-Type': 'application/json'
-  }
-  body = {
-    'text': narration,
-    'model_id': 'eleven_multilingual_v2',
-    'output_format': 'mp3_44100_128',  # Free 티어용 포맷 고정
-    'voice_settings': {
-      'stability': 0.5,
-      'similarity_boost': 0.75
-    }
-  }
-
-  for attempt in range(MAX_RETRIES):
-    try:
-      response = requests.post(url, json=body, headers=headers, timeout=30)
-      if response.status_code == 200:
-        # 직접 바이너리 응답 (JSON이 아님)
-        return response.content
-
-      elif response.status_code == 401:
-        logger.error('ElevenLabs API 인증 실패 (유효하지 않은 API 키)')
-        raise ValueError('ELEVENLABS_API_KEY가 유효하지 않습니다')
-
-      elif response.status_code == 429:
-        logger.warning(f'ElevenLabs API 비율 제한, 재시도 {attempt + 1}/{MAX_RETRIES}')
-        if attempt < MAX_RETRIES - 1:
-          import time
-          time.sleep(2 ** attempt)
-          continue
-        raise RuntimeError('ElevenLabs API 비율 제한 초과')
-
-      else:
-        logger.error(f'ElevenLabs API 오류: {response.status_code} {response.text}')
-        if attempt < MAX_RETRIES - 1:
-          import time
-          time.sleep(2 ** attempt)
-          continue
-        raise RuntimeError(f'ElevenLabs API 오류: {response.status_code}')
-
-    except requests.RequestException as e:
-      logger.error(f'ElevenLabs API 호출 실패: {e}, 재시도 {attempt + 1}/{MAX_RETRIES}')
-      if attempt < MAX_RETRIES - 1:
-        import time
-        time.sleep(2 ** attempt)
-        continue
-      raise
-
-  raise RuntimeError('ElevenLabs API 호출 최대 재시도 횟수 초과')
+async def call_edge_tts_api_async(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
+    """edge-tts로 TTS 생성 후 MP3 바이트 반환 (비동기 방식)"""
+    import tempfile
+    # Communicate 객체 생성
+    communicate = edge_tts.Communicate(text, voice)
+    
+    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    # 비동기로 파일 저장
+    await communicate.save(tmp_path)
+    
+    audio_bytes = Path(tmp_path).read_bytes()
+    Path(tmp_path).unlink()  # 임시 파일 삭제
+    return audio_bytes
 
 
 def estimate_alignment_from_audio(
@@ -302,46 +328,6 @@ def estimate_alignment_from_audio(
   }
 
 
-def generate_audio_with_alignment(
-  narration: str,
-  scene_index: int,
-  voice_id: str = ELEVENLABS_VOICE_ID,
-  use_cache: bool = True
-) -> tuple[Path, Path]:
-  """
-  씬별 오디오 생성 (MP3 + alignment JSON)
-  반환: (mp3_path, alignment_path)
-
-  Free 버전: 기본 TTS + 추정 alignment
-  """
-  mp3_path = get_cache_path(narration, scene_index, '_audio.mp3')
-  alignment_path = get_cache_path(narration, scene_index, '_alignment.json')
-
-  # 캐시 확인
-  if use_cache and mp3_path.exists() and alignment_path.exists():
-    logger.info(f'캐시된 오디오 사용: {mp3_path}')
-    return mp3_path, alignment_path
-
-  # API 호출
-  logger.info(f'ElevenLabs 오디오 생성: Scene {scene_index}')
-  audio_bytes = call_elevenlabs_api(narration, voice_id)
-
-  # MP3 저장
-  mp3_path.parent.mkdir(parents=True, exist_ok=True)
-  with open(mp3_path, 'wb') as f:
-    f.write(audio_bytes)
-  logger.info(f'MP3 저장: {mp3_path}')
-
-  # alignment 추정 및 저장
-  alignment_dict = estimate_alignment_from_audio(str(mp3_path), narration)
-  alignment_dict['scene_index'] = scene_index
-  alignment_dict['audio_path'] = str(mp3_path)
-  alignment_dict['note'] = 'Free 버전: 추정된 타임스탬프 (정확도 낮음)'
-
-  save_alignment_to_cache(alignment_path, alignment_dict)
-
-  return mp3_path, alignment_path
-
 
 def get_audio_duration_from_mp3(mp3_path: Path) -> float:
   """MP3 파일의 실제 재생 길이(초) 측정"""
@@ -385,12 +371,12 @@ def clean_tts_text(text: str) -> str:
   return cleaned
 
 
-def generate_sentence_audio(
+async def generate_sentence_audio(
   sentence_text: str,
   scene_idx: int,
   sent_idx: int,
   poem_dir: Path,
-  voice_id: str = ELEVENLABS_VOICE_ID,
+  voice: str = EDGE_TTS_VOICE,
   use_cache: bool = True,
 ) -> tuple[Path, Path]:
   """
@@ -411,8 +397,8 @@ def generate_sentence_audio(
     logger.warning(f'Scene {scene_idx} Sent {sent_idx}: 구두점 제거 후 텍스트 없음, 원본 사용')
     cleaned = sentence_text
 
-  logger.info(f'ElevenLabs 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx}')
-  audio_bytes = call_elevenlabs_api(cleaned, voice_id)
+  logger.info(f'edge-tts 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx}')
+  audio_bytes = await call_edge_tts_api_async(cleaned, voice)
 
   mp3_path.parent.mkdir(parents=True, exist_ok=True)
   mp3_path.write_bytes(audio_bytes)
@@ -436,27 +422,27 @@ def generate_sentence_audio(
   return mp3_path, alignment_path
 
 
-def generate_all_audio(
+async def generate_all_audio(
   script_data: list[dict],
   poem_dir: Path,
   use_cache: bool = True,
 ) -> tuple[list[list[str]], list[list[str]]]:
   """
   모든 씬의 모든 문장에 대해 TTS 생성 (문장 단위)
-
-  반환:
-    sentence_audio_paths: list[list[str]]   # [씬][문장] → MP3 경로
-    sentence_alignment_paths: list[list[str]]  # [씬][문장] → alignment JSON 경로
   """
   sentence_audio_paths = []
   sentence_alignment_paths = []
 
   for scene_idx, scene in enumerate(script_data):
     sentences = scene.get('modern_sentences', [])
+
     if not sentences:
-      # 하위호환: modern_sentences 없는 경우 modern_text에서 직접 분리
-      from step1_nlp import split_into_sentences
-      sentences = split_into_sentences(scene.get('modern_text', ''))
+      fallback_text = scene.get('modern_text', '').strip()
+      sentences = [fallback_text] if fallback_text else []
+
+    # 1씬=1문장 불변 조건 검증
+    if len(sentences) != 1:
+      logger.warning(f'Scene {scene_idx}: modern_sentences 개수={len(sentences)} (기대값=1)')
 
     if not sentences:
       logger.warning(f'Scene {scene_idx}: 문장이 없습니다')
@@ -465,9 +451,11 @@ def generate_all_audio(
       continue
 
     scene_audios, scene_alignments = [], []
+    
+    # ✅ 체크 3: 이제 1개가 아닌, sentences 리스트의 개수만큼 루프를 돌며 생성
     for sent_idx, sentence_text in enumerate(sentences):
       try:
-        mp3_path, align_path = generate_sentence_audio(
+        mp3_path, align_path = await generate_sentence_audio(
           sentence_text, scene_idx, sent_idx, poem_dir,
           use_cache=use_cache
         )
@@ -483,39 +471,48 @@ def generate_all_audio(
   logger.info(f'전체 문장 오디오 생성 완료: {sum(len(s) for s in sentence_audio_paths)}개 문장')
   return sentence_audio_paths, sentence_alignment_paths
 
-
 def cmd_check() -> bool:
-  """ElevenLabs API 연결 확인 (TTS 엔드포인트 테스트)"""
-  if not ELEVENLABS_API_KEY:
-    logger.error('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
-    return False
-
-  if not ELEVENLABS_VOICE_ID:
-    logger.error('ELEVENLABS_VOICE_ID 환경변수가 설정되지 않았습니다')
-    return False
+  """edge-tts 연결 확인"""
+  # [ElevenLabs] 아래 코드는 ElevenLabs 사용 시 주석 해제
+  # if not ELEVENLABS_API_KEY:
+  #   logger.error('ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다')
+  #   return False
+  # if not ELEVENLABS_VOICE_ID:
+  #   logger.error('ELEVENLABS_VOICE_ID 환경변수가 설정되지 않았습니다')
+  #   return False
+  # try:
+  #   url = f'{ELEVENLABS_API_URL}/text-to-speech/{ELEVENLABS_VOICE_ID}'
+  #   headers = {
+  #     'xi-api-key': ELEVENLABS_API_KEY,
+  #     'Content-Type': 'application/json'
+  #   }
+  #   body = {
+  #     'text': '테스트',
+  #     'model_id': 'eleven_multilingual_v2',
+  #     'output_format': 'mp3_44100_128'
+  #   }
+  #   response = requests.post(url, json=body, headers=headers, timeout=10)
+  #   if response.status_code == 200:
+  #     logger.info('✓ ElevenLabs API 연결 성공')
+  #     return True
+  #   else:
+  #     logger.error(f'✗ ElevenLabs API 오류: {response.status_code} - {response.text[:100]}')
+  #     return False
+  # except Exception as e:
+  #   logger.error(f'✗ ElevenLabs API 연결 실패: {e}')
+  #   return False
 
   try:
-    # API 연결 테스트 (TTS 호출)
-    url = f'{ELEVENLABS_API_URL}/text-to-speech/{ELEVENLABS_VOICE_ID}'
-    headers = {
-      'xi-api-key': ELEVENLABS_API_KEY,
-      'Content-Type': 'application/json'
-    }
-    body = {
-      'text': '테스트',
-      'model_id': 'eleven_multilingual_v2',
-      'output_format': 'mp3_44100_128'
-    }
-    response = requests.post(url, json=body, headers=headers, timeout=10)
-
-    if response.status_code == 200:
-      logger.info('✓ ElevenLabs API 연결 성공')
-      return True
-    else:
-      logger.error(f'✗ ElevenLabs API 오류: {response.status_code} - {response.text[:100]}')
-      return False
+    import tempfile
+    tts = edge_tts.Communicate('테스트', voice=EDGE_TTS_VOICE)
+    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+      tmp_path = tmp.name
+    tts.save_sync(tmp_path)
+    Path(tmp_path).unlink()
+    logger.info(f'✓ edge-tts 연결 성공 (voice: {EDGE_TTS_VOICE})')
+    return True
   except Exception as e:
-    logger.error(f'✗ ElevenLabs API 연결 실패: {e}')
+    logger.error(f'✗ edge-tts 연결 실패: {e}')
     return False
 
 
@@ -530,12 +527,12 @@ if __name__ == '__main__':
   )
 
   logger.info('=' * 70)
-  logger.info('Step 2: ElevenLabs TTS 테스트')
+  logger.info('Step 2: edge-tts TTS 테스트')
   logger.info('=' * 70)
 
-  # 1. ElevenLabs API 확인
+  # 1. edge-tts 연결 확인
   if not cmd_check():
-    logger.error('✗ ElevenLabs API 연결 실패')
+    logger.error('✗ edge-tts 연결 실패')
     exit(1)
 
   # 2. poem_dir 인자 처리
@@ -554,16 +551,35 @@ if __name__ == '__main__':
   with open(nlp_path, 'r', encoding='utf-8') as f:
     nlp_data = json.load(f)
 
-  script_data = nlp_data.get('modern_script_data', [])
-  logger.info(f'NLP 데이터: {len(script_data)}개 씬')
+  # 데이터 구조 판별 및 로드
+  if isinstance(nlp_data, list):
+      # 1. 최상위가 리스트인 경우 ([{...}, {...}])
+      script_data = nlp_data
+  elif isinstance(nlp_data, dict):
+      # 2. 'scenes' 키 안에 데이터가 있는 경우 ({"scenes": [...]})
+      if 'scenes' in nlp_data:
+          script_data = nlp_data['scenes']
+      # 3. 'items' 등 다른 키를 쓰는 경우 대비 (첫 번째 리스트 값을 찾음)
+      else:
+          script_data = next((v for v in nlp_data.values() if isinstance(v, list)), [])
+  else:
+      script_data = []
 
-  # 3. Step 2 실행
+  if not script_data:
+      logger.error(f"✗ 데이터를 찾을 수 없습니다. 파일 내용 예시: {str(nlp_data)[:100]}")
+      exit(1)
+
+  logger.info(f'nlp_data 로드 성공: {len(script_data)}개 씬 발견')
+
+# 3. Step 2 실행 (비동기 루프 시작)
   try:
     logger.info('\nTTS 생성 실행 중...')    
     
-    audio_paths, alignment_paths = generate_all_audio(
+    # asyncio.run()을 사용하여 비동기 함수인 generate_all_audio를 실행합니다.
+    import asyncio
+    audio_paths, alignment_paths = asyncio.run(generate_all_audio(
       script_data=script_data, poem_dir=poem_dir, use_cache=True
-    )
+    ))
 
     total_sentences = sum(len(scene_audios) for scene_audios in audio_paths)
     logger.info(f'\n✓ TTS 생성 완료: {total_sentences}개 문장')

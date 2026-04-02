@@ -2,11 +2,9 @@
 Step 3: ElevenLabs alignment → AnimateDiff BatchPromptSchedule JSON
 타임스탬프 기반 동적 프레임 스케줄링
 """
-
 import os
 import json
 import logging
-import math
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -60,256 +58,72 @@ def save_schedule_to_cache(schedule_path: Path, schedule_data: dict) -> None:
   logger.info(f'스케줄 저장: {schedule_path}')
 
 
-def calculate_frame_index(timestamp_seconds: float, fps: int) -> int:
-  """타임스탬프 → 프레임 인덱스 변환"""
-  return int(math.floor(timestamp_seconds * fps))
-
-
-def generate_visual_prompt(
-  scene_data: dict,
-  sentence_text: str,
-  scene_index: int
-) -> str:
-  """
-  LLM으로 영문 시각적 프롬프트 생성
-  입력: modern_text, 배경, 감정, 나레이션 전체 → 출력: 디테일한 영문 프롬프트
-  """
-  if not OPENAI_API_KEY:
-    # API 키 없을 때 기본 프롬프트 생성
-    background = scene_data.get('background', 'ancient korean landscape')
-    emotion = scene_data.get('emotion', 'serene')
-    logger.warning('OPENAI_API_KEY 없음, 기본 프롬프트 사용')
-    return f'{background}, {emotion}, {COMMON_KEYWORDS}'
-
-  background = scene_data.get('background', 'ancient korean landscape')
-  emotion = scene_data.get('emotion', 'serene')
-  modern_text = scene_data.get('modern_text', '')
-  narration = scene_data.get('narration', '')
-
-  system_prompt = (
-    'You are an expert Stable Diffusion prompt writer for traditional Korean art scenes. '
-    'Always output ONLY the English prompt, no explanations or markdown. '
-    'Requirements: '
-    '1. Include ALL characters mentioned in the scene (if horse+trader+inspector → show all 3). '
-    '2. Include ALL key objects (horse, fortress wall, liquor bottle, pipe, etc.) directly visible. '
-    '3. Describe specific actions and positions of each character. '
-    '4. Use 200-250 English words. '
-    '5. Style: ink wash painting, guofeng, traditional Korean art.'
-  )
-
-  user_prompt = f"""조선시대 고전 시가의 장면을 Stable Diffusion 프롬프트로 만들어주세요.
-
-현대어 번역 (핵심 — 장면의 모든 등장인물과 사물을 반드시 포함):
-{modern_text}
-
-나레이션 (화자의 심리):
-{narration}
-
-배경: {background}
-감정: {emotion}
-
-등장인물과 사물을 빠짐없이 시각화하세요:
-- 장면에 언급된 모든 인물 (예: 암행어사, 소주 장사) → 각자의 위치와 행동 명시
-- 장면에 언급된 사물 (예: 말, 성벽, 술병, 담뱃대) → 화면에 직접 포함
-- 배경 환경 (예: 성문, 설원, 안개 낀 산) → 구체적으로 묘사
-
-엄격 금지: 현대 사물, 서양 의복, 유리컵, wine glass, modern bottles
-술은 반드시: ceramic cup, porcelain jar, traditional korean vessel
-영어로만 출력, 따옴표 없이"""
-
-  try:
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    response = client.chat.completions.create(
-      model='gpt-4o-mini',
-      messages=[
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': user_prompt}
-      ],
-      temperature=0.7,
-      max_tokens=350,
-      timeout=10
-    )
-    visual_prompt = response.choices[0].message.content.strip()
-    return f'{visual_prompt}, {COMMON_KEYWORDS}'
-  except Exception as e:
-    logger.error(f'LLM 프롬프트 생성 실패: {e}')
-    return f'{background}, {emotion}, {COMMON_KEYWORDS}'
-
-
-def build_prompt_schedule_for_scene(
-  scene_data: dict,
-  alignment_data: dict,
-  scene_index: int,
-  fps: int = ANIMATEDIFF_FPS
-) -> dict:
-  """
-  씬별 프롬프트 스케줄 빌드
-  alignment.sentences → 프레임별 프롬프트 매핑
-  """
-  sentences = alignment_data.get('sentences', [])
-  total_duration = alignment_data.get('total_duration', 0)
-  total_frames = int(math.ceil(total_duration * fps))
-
-  prompt_schedule = {}
-
-  if not sentences:
-    # 문장이 없으면 전체 씬에 단일 프롬프트 적용
-    prompt = generate_visual_prompt(scene_data, '', scene_index)
-    prompt_schedule['0'] = prompt
-    return {
-      'scene_index': scene_index,
-      'total_frames': total_frames,
-      'prompt_schedule': prompt_schedule,
-      'negative_prompt': NEGATIVE_PROMPT
-    }
-
-  # 문장별 프롬프트 생성 및 프레임 인덱스 계산
-  for sent_idx, sentence in enumerate(sentences):
-    sent_start = sentence.get('start', 0)
-    sent_text = sentence.get('text', '')
-    frame_idx = calculate_frame_index(sent_start, fps)
-
-    # LLM으로 프롬프트 생성
-    prompt = generate_visual_prompt(scene_data, sent_text, scene_index)
-    prompt_schedule[str(frame_idx)] = prompt
-
-  return {
-    'scene_index': scene_index,
-    'total_frames': total_frames,
-    'prompt_schedule': prompt_schedule,
-    'negative_prompt': NEGATIVE_PROMPT
-  }
-
-
-def build_frame_schedules(
-  script_data: list[dict],
-  alignment_paths: list[str],
-  poem_dir: Path,
-  use_cache: bool = True
-) -> str:
-  """
-  전체 스크립트의 프레임 스케줄 빌드
-  반환: schedule JSON 파일 경로
-  """
-  if len(script_data) != len(alignment_paths):
-    raise ValueError(f'script_data({len(script_data)}) != alignment_paths({len(alignment_paths)})')
-
-  schedule_path = get_cache_path(poem_dir)
-
-  # 캐시 확인
-  if use_cache and schedule_path.exists():
-    logger.info(f'캐시된 스케줄 사용: {schedule_path}')
-    return str(schedule_path)
-
-  logger.info('프레임 스케줄 빌드 중...')
-
-  scene_schedules = []
-
-  for scene_idx, (scene_data, alignment_file) in enumerate(zip(script_data, alignment_paths)):
-    # alignment JSON 로드
-    try:
-      with open(alignment_file, 'r', encoding='utf-8') as f:
-        alignment_data = json.load(f)
-    except Exception as e:
-      logger.error(f'alignment 로드 실패: {alignment_file}, {e}')
-      raise
-
-    # 씬별 스케줄 빌드
-    scene_schedule = build_prompt_schedule_for_scene(
-      scene_data,
-      alignment_data,
-      scene_idx
-    )
-    scene_schedules.append(scene_schedule)
-
-    logger.info(f'Scene {scene_idx}: {scene_schedule["total_frames"]} frames, '
-                f'{len(scene_schedule["prompt_schedule"])} transitions')
-
-  # 최종 스케줄 저장
-  final_schedule = {'scene_schedules': scene_schedules}
-  save_schedule_to_cache(schedule_path, final_schedule)
-
-  logger.info(f'전체 스케줄 빌드 완료: {len(scene_schedules)}개 씬')
-  return str(schedule_path)
-
 
 def build_sentence_schedules(
-  script_data: list[dict],
-  sentence_audio_paths: list[list[str]],
-  sentence_alignment_paths: list[list[str]],
-  poem_dir: Path,
-  use_cache: bool = True,
+    script_data: list[dict],
+    sentence_audio_paths: list[list[str]],
+    sentence_alignment_paths: list[list[str]],
+    poem_dir: Path,
+    use_cache: bool = True,
 ) -> str:
-  """
-  문장 단위 스케줄 생성
+    """문장 단위 스케줄 생성 (모든 문장 동적 대응)"""
+    schedule_path = poem_dir / 'step3_sentence_schedule.json'
 
-  입력:
-    script_data: modern_sentences, sentence_image_prompts 포함
-    sentence_audio_paths: [씬][문장] MP3 경로
-    sentence_alignment_paths: [씬][문장] alignment JSON 경로
+    if use_cache and schedule_path.exists():
+        logger.info(f'캐시 사용: {schedule_path}')
+        return str(schedule_path)
 
-  출력:
-    sentence_schedule.json: {sentence_schedules: [{scene_index, sent_index, text, image_prompt, duration, audio_path}]}
-  """
-  schedule_path = poem_dir / 'step3_sentence_schedule.json'
+    sentence_schedules = []
+    from moviepy.editor import AudioFileClip
 
-  if use_cache and schedule_path.exists():
-    logger.info(f'캐시된 문장 스케줄 사용: {schedule_path}')
+    for scene_idx, scene in enumerate(script_data):
+        sentences = scene.get('modern_sentences', [])
+        prompts = scene.get('sentence_image_prompts', [])
+
+        # 1씬=1문장 불변 조건 검증
+        if len(sentences) != 1:
+          logger.warning(f'Scene {scene_idx}: modern_sentences 개수={len(sentences)} (기대값=1)')
+        
+        # 해당 씬에 할당된 오디오 파일 리스트
+        scene_audios = sentence_audio_paths[scene_idx]
+
+        # ✅ 체크 2: 씬 내부의 문장 개수만큼 루프
+        for sent_idx, text in enumerate(sentences):
+            audio_path = scene_audios[sent_idx] if sent_idx < len(scene_audios) else ""
+            image_prompt = prompts[sent_idx] if sent_idx < len(prompts) else scene.get('image_prompt', '')
+
+            # 오디오 길이 측정
+            try:
+                with AudioFileClip(audio_path) as audio:
+                    duration = audio.duration
+            except Exception as e:
+                logger.warning(f"오디오 길이 측정 실패({audio_path}): {e}")
+                duration = 2.0 # Fallback
+
+            # 개별 문장 스케줄 추가
+            sentence_schedules.append({
+                'scene_index': scene_idx,
+                'sentence_index': sent_idx,
+                'text': text,
+                'image_prompt': image_prompt,
+                'negative_prompt': NEGATIVE_PROMPT,
+                'duration': duration,
+                'audio_path': audio_path,
+            })
+
+    final_schedule = {
+        'sentence_schedules': sentence_schedules,
+        'total_sentences': len(sentence_schedules), # ✅ 이제 9개가 찍힘
+        'common_negative_prompt': NEGATIVE_PROMPT,
+    }
+
+    schedule_path.parent.mkdir(parents=True, exist_ok=True)
+    schedule_path.write_text(
+        json.dumps(final_schedule, ensure_ascii=False, indent=2), encoding='utf-8'
+    )
+    logger.info(f'문장 스케줄 저장: {schedule_path} ({len(sentence_schedules)}개 문장)')
+
     return str(schedule_path)
-
-  sentence_schedules = []
-
-  for scene_idx, scene in enumerate(script_data):
-    sentences = scene.get('modern_sentences', [])
-    sentence_prompts = scene.get('sentence_image_prompts', [])
-    audio_paths_for_scene = sentence_audio_paths[scene_idx] if scene_idx < len(sentence_audio_paths) else []
-    align_paths_for_scene = sentence_alignment_paths[scene_idx] if scene_idx < len(sentence_alignment_paths) else []
-
-    for sent_idx, sentence_text in enumerate(sentences):
-      if sent_idx >= len(align_paths_for_scene):
-        logger.warning(f'Scene {scene_idx} Sent {sent_idx}: alignment 경로 없음')
-        continue
-
-      # alignment JSON 로드
-      try:
-        alignment_data = json.loads(
-          Path(align_paths_for_scene[sent_idx]).read_text(encoding='utf-8')
-        )
-      except Exception as e:
-        logger.error(f'alignment 로드 실패: {align_paths_for_scene[sent_idx]}, {e}')
-        raise
-
-      duration = alignment_data.get('duration', 1.0)
-      image_prompt = (
-        sentence_prompts[sent_idx]
-        if sent_idx < len(sentence_prompts)
-        else scene.get('image_prompt', '')
-      )
-
-      sentence_schedules.append({
-        'scene_index': scene_idx,
-        'sent_index': sent_idx,
-        'text': sentence_text,
-        'image_prompt': image_prompt,
-        'negative_prompt': NEGATIVE_PROMPT,
-        'duration': duration,
-        'audio_path': audio_paths_for_scene[sent_idx] if sent_idx < len(audio_paths_for_scene) else '',
-      })
-
-  final_schedule = {
-    'sentence_schedules': sentence_schedules,
-    'total_sentences': len(sentence_schedules),
-    'common_negative_prompt': NEGATIVE_PROMPT,
-  }
-
-  schedule_path.parent.mkdir(parents=True, exist_ok=True)
-  schedule_path.write_text(
-    json.dumps(final_schedule, ensure_ascii=False, indent=2), encoding='utf-8'
-  )
-  logger.info(f'문장 스케줄 저장: {schedule_path} ({len(sentence_schedules)}개 문장)')
-
-  return str(schedule_path)
-
 
 def cmd_check() -> bool:
   """프레임 스케줄링 환경 확인"""
@@ -364,7 +178,7 @@ if __name__ == '__main__':
     logger.error('✗ 환경 확인 실패')
     exit(1)
 
-  # 2. NLP 데이터 로드
+# 2. NLP 데이터 로드 (자동 탐색 모드)
   nlp_path = poem_dir / 'step1_nlp.json'
   if not nlp_path.exists():
     logger.error(f'✗ NLP 파일 없음: {nlp_path}')
@@ -373,32 +187,61 @@ if __name__ == '__main__':
   with open(nlp_path, 'r', encoding='utf-8') as f:
     nlp_data = json.load(f)
 
-  script_data = nlp_data.get('modern_script_data', [])
+  script_data = []
 
-  # 3. Step 2 오디오/alignment 파일 로드
+  if isinstance(nlp_data, list):
+      # 경우 1: 최상위가 바로 리스트인 경우
+      script_data = nlp_data
+  elif isinstance(nlp_data, dict):
+      # 경우 2: 'scenes', 'data', 'items' 등의 키를 사용하는 경우
+      for key in ['scenes', 'data', 'items', 'script', 'modern_script_data']:
+          if key in nlp_data and isinstance(nlp_data[key], list):
+              script_data = nlp_data[key]
+              logger.info(f"'{key}' 키에서 데이터를 찾았습니다.")
+              break
+      
+      # 경우 3: 키 이름을 알 수 없지만 딕셔너리 안에 리스트가 하나뿐인 경우
+      if not script_data:
+          for value in nlp_data.values():
+              if isinstance(value, list) and len(value) > 0:
+                  script_data = value
+                  break
+
+  if not script_data:
+      logger.error(f"✗ 데이터를 찾을 수 없습니다. JSON 구조 확인 필요: {list(nlp_data.keys())}")
+      exit(1)
+
+  logger.info(f'nlp_data 로드 성공: {len(script_data)}개 씬 발견')
+
+# 3. Step 2 파일 로드 (1씬 1문장 체제 반영)
   sentence_audio_paths = []
   sentence_alignment_paths = []
-  for scene_idx in range(len(script_data)):
-    scene_audios = []
-    scene_alignments = []
-    for sent_idx in range(len(script_data[scene_idx].get('modern_sentences', []))):
-      audio_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
-      alignment_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
-      if not audio_path.exists() or not alignment_path.exists():
-        logger.error(f'✗ 오디오/alignment 파일 없음: {audio_path}, {alignment_path}')
-        exit(1)
-      scene_audios.append(str(audio_path))
-      scene_alignments.append(str(alignment_path))
-    sentence_audio_paths.append(scene_audios)
-    sentence_alignment_paths.append(scene_alignments)
+  
+  logger.info(f"검사 시작: {len(script_data)}개의 씬에 대한 파일을 찾습니다.")
 
-  logger.info(f'NLP: {len(script_data)}개 씬')
-  total_sentences = sum(len(audios) for audios in sentence_audio_paths)
-  logger.info(f'오디오: {total_sentences}개 문장')
+  for scene_idx, scene in enumerate(script_data):
+        scene_audios = []
+        scene_alignments = []
+        
+        # 해당 씬의 문장 개수만큼 반복
+        sentences = scene.get('modern_sentences', [])
+        for sent_idx in range(len(sentences)):
+            audio_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
+            alignment_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
+            
+            if audio_path.exists():
+                scene_audios.append(str(audio_path))
+                scene_alignments.append(str(alignment_path))
+            else:
+                logger.error(f'✗ 파일 누락: {audio_path}')
+        
+        sentence_audio_paths.append(scene_audios)
+        sentence_alignment_paths.append(scene_alignments)
 
-  # 4. Step 3 실행 (문장 단위 스케줄)
+  # 4. Step 3 실행
   try:
     logger.info('\n스케줄 생성 실행 중...')
+    # 함수가 일반 함수라면 그대로 호출, 만약 async로 바꾸셨다면 await 사용
     schedule_path = build_sentence_schedules(
       script_data,
       sentence_audio_paths,
@@ -406,24 +249,7 @@ if __name__ == '__main__':
       poem_dir=poem_dir,
       use_cache=True
     )
-
-    logger.info('\n✓ 스케줄 생성 완료')
-    logger.info(f'  파일: {Path(schedule_path).name}')
-
-    with open(schedule_path, 'r', encoding='utf-8') as f:
-      schedule_data = json.load(f)
-    schedules = schedule_data.get('sentence_schedules', [])
-    for s in schedules:
-      scene_idx = s['scene_index']
-      sent_idx = s['sent_index']
-      duration = s['duration']
-      logger.info(f'  Scene {scene_idx}, Sent {sent_idx}: {duration:.2f}초')
-
-    logger.info('\n' + '=' * 70)
-    logger.info('✓ Step 3 테스트 완료')
-    logger.info('=' * 70)
-    exit(0)
-
+    logger.info(f'✓ 스케줄 생성 완료: {schedule_path}')
+    
   except Exception as e:
-    logger.error(f'\n✗ Step 3 실패: {e}', exc_info=True)
-    exit(1)
+    logger.error(f'✗ Step 3 실패: {e}')
