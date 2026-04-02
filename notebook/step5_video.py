@@ -28,7 +28,7 @@ OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FPS = 30  # 10fps → 30fps 업스케일
 SUBTITLE_FONT_SIZE = 48
-SUBTITLE_COLOR = (255, 255, 255)  # RGB white
+SUBTITLE_COLOR = (0, 0, 0)  # RGB black
 
 
 def get_cache_path(poem_dir: Path) -> Path:
@@ -109,9 +109,6 @@ def render_subtitle_image(text: str, canvas_width: int, canvas_height: int):
     bbox = draw.textbbox((0, 0), line, font=font)
     line_width = bbox[2] - bbox[0]
     x = (canvas_width - line_width) // 2
-    # 흰색 텍스트 + 얇은 검은 외곽선 (가독성)
-    for dx, dy in [(-2, -2), (2, -2), (-2, 2), (2, 2)]:
-      draw.text((x + dx, y_start + dy), line, font=font, fill=(0, 0, 0, 200))
     draw.text((x, y_start), line, font=font, fill=(*SUBTITLE_COLOR, 255))
     y_start += line_height
 
