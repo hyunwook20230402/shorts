@@ -60,65 +60,30 @@ def load_alignment_data(alignment_path: str) -> dict:
     return {'sentences': [], 'total_duration': 0}
 
 
-def make_subtitle_clip_for_sentence(
-  text: str,
-  start_time: float,
-  end_time: float,
-  video_width: int = OUTPUT_WIDTH,
-  video_height: int = OUTPUT_HEIGHT
-) -> Optional[object]:
-  """
-  문장 하나의 자막 클립 생성 (PIL 기반, ImageMagick 불필요)
-  반환: TextClip or None
-  """
-  if not text or start_time >= end_time:
-    return None
+def make_subtitle_clip_for_sentence(text: str, duration: float) -> CompositeVideoClip:
+    """
+    현대어 번역본을 오디오 길이에 맞춰 노출하는 자막 클립 생성 (MoviePy 전용)
+    """
+    from moviepy.editor import TextClip, ColorClip
+    
+    # 1. 텍스트 클립 (내용)
+    txt_clip = TextClip(
+        text,
+        fontsize=SUBTITLE_FONT_SIZE,
+        color=SUBTITLE_COLOR,
+        font=str(SUBTITLE_FONT_PATH),
+        method='caption', # 긴 문장 자동 줄바꿈
+        size=(OUTPUT_WIDTH * 0.8, None),
+        align='Center'
+    ).set_duration(duration).set_position(('center', OUTPUT_HEIGHT * 0.85))
 
-  try:
-    import tempfile
+    # 2. 배경 클립 (가독성을 위한 반투명 박스)
+    bg_clip = ColorClip(
+        size=(txt_clip.w + 40, txt_clip.h + 20),
+        color=(0, 0, 0)
+    ).set_opacity(0.6).set_duration(duration).set_position(('center', OUTPUT_HEIGHT * 0.85))
 
-    from PIL import Image, ImageDraw, ImageFont
-
-    # PIL로 텍스트 이미지 생성
-    temp_dir = Path(tempfile.gettempdir())
-    txt_img_path = temp_dir / f'subtitle_{int(start_time*1000)}.png'
-
-    # 텍스트 크기 계산 (대략적 추정)
-    font_size = SUBTITLE_FONT_SIZE
-    try:
-      font = ImageFont.truetype(str(SUBTITLE_FONT_PATH), font_size)
-    except Exception:
-      font = ImageFont.load_default()
-
-    # 배경 이미지 생성 (투명 배경)
-    img_width = video_width - 100
-    img_height = font_size + 20
-    img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    # 텍스트 중앙 정렬
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (img_width - text_width) // 2
-    y = (img_height - text_height) // 2
-
-    # 텍스트 그리기 (흰색)
-    draw.text((x, y), text, font=font, fill=SUBTITLE_COLOR)
-    img.save(str(txt_img_path))
-
-    # MoviePy ImageClip으로 변환
-    from moviepy.editor import ImageClip
-    duration = end_time - start_time
-    txt_clip = ImageClip(str(txt_img_path)).set_duration(duration).set_start(start_time)
-    txt_clip = txt_clip.set_position(('center', video_height - 250))
-
-    logger.debug(f'자막 생성: "{text[:30]}" ({start_time:.2f}~{end_time:.2f}s, duration={duration:.2f}s)')
-    return txt_clip
-
-  except Exception as e:
-    logger.warning(f'자막 클립 생성 실패: {text[:30]}, {e}')
-    return None
+    return CompositeVideoClip([bg_clip, txt_clip])
 
 
 def concatenate_clips(
@@ -163,50 +128,25 @@ def concatenate_clips(
   return concatenated
 
 
-def add_subtitles_to_video(
-  video_clip,
-  sentence_schedules: list[dict]
-):
-  """
-  문장 단위 자막 Burn-in
-  각 문장의 duration을 누적하여 global_start/end 계산
-  """
-  subtitle_clips = []
-  cumulative_time = 0.0
+def add_subtitles_to_video(video_clip, sentence_schedules: list[dict]):
+    """
+    이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음
+    """
+    subtitle_clips = []
+    current_time = 0.0
 
-  for entry in sentence_schedules:
-    text = entry.get('text', '')
-    duration = entry.get('duration', 1.0)
+    for entry in sentence_schedules:
+        text = entry.get('text', '')
+        duration = entry.get('duration', 0.0)
+        
+        if text:
+            # 위에서 만든 새로운 자막 함수 호출
+            sub = make_subtitle_clip_for_sentence(text, duration).set_start(current_time)
+            subtitle_clips.append(sub)
+            
+        current_time += duration
 
-    if not text:
-      logger.warning('빈 문장 텍스트, 자막 스킵')
-      cumulative_time += duration
-      continue
-
-    global_start = cumulative_time
-    global_end = cumulative_time + duration
-
-    # 자막 클립 생성
-    try:
-      sub_clip = make_subtitle_clip_for_sentence(text, global_start, global_end, OUTPUT_WIDTH, OUTPUT_HEIGHT)
-      if sub_clip:
-        subtitle_clips.append(sub_clip)
-        logger.info(f'자막: {text[:30]}... ({global_start:.2f}s ~ {global_end:.2f}s)')
-    except Exception as e:
-      logger.warning(f'문장 자막 생성 실패: {text[:30]}..., {e}')
-
-    cumulative_time += duration
-
-  if not subtitle_clips:
-    logger.warning('생성된 자막이 없습니다')
-    return video_clip
-
-  # 자막 오버레이
-  try:
     return CompositeVideoClip([video_clip] + subtitle_clips)
-  except Exception as e:
-    logger.error(f'자막 오버레이 실패: {e}')
-    return video_clip
 
 
 def composite_video_with_audio(
@@ -418,7 +358,7 @@ if __name__ == '__main__':
     exit(1)
 
   # 2. Step 4 이미지 파일 탐색
-  still_files = sorted(poem_dir.glob('step4_*_still.png'))
+  still_files = sorted(poem_dir.glob('step4_*_sent00_still.png'))
   if not still_files:
     logger.error(f'✗ Step 4 정지 이미지 없음: {poem_dir}')
     exit(1)
@@ -427,7 +367,7 @@ if __name__ == '__main__':
   logger.info(f'정지 이미지: {len(still_paths)}개')
 
   # 3. Step 2 오디오/alignment 파일 탐색
-  audio_files = sorted(poem_dir.glob('step2_*_audio.mp3'))
+  audio_files = sorted(poem_dir.glob('step2_*_sent00_audio.mp3'))
   alignment_files = sorted(poem_dir.glob('step2_*_alignment.json'))
 
   if not audio_files or not alignment_files:
