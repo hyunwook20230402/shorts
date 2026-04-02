@@ -167,6 +167,10 @@ def postprocess_ocr_text(text: str) -> str:
   text = re.sub(r'\([가-힣]\)', '', text)
   # (중략), (후략), (전략) 등 구조 표지 제거
   text = re.sub(r'\([가-힣]{2,4}\)', '', text)
+  # 각주 줄 제거: *단어: 설명 형태 (행 첫 문자가 *)
+  text = re.sub(r'^\*[^:\n]+:[^\n]*$', '', text, flags=re.MULTILINE)
+  # [출처], [각주] 태그 줄 제거
+  text = re.sub(r'^\[(?:출처|각주)\][^\n]*$', '', text, flags=re.MULTILINE)
   # 연속 공백 정리
   text = re.sub(r'[ \t]{2,}', ' ', text)
   # 연속 빈 줄 3개 이상 → 2개로 정리

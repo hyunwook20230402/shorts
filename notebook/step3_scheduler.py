@@ -78,19 +78,17 @@ def build_sentence_schedules(
 
     for scene_idx, scene in enumerate(script_data):
         sentences = scene.get('modern_sentences', [])
-        prompts = scene.get('sentence_image_prompts', [])
 
         # 1씬=1문장 불변 조건 검증
         if len(sentences) != 1:
           logger.warning(f'Scene {scene_idx}: modern_sentences 개수={len(sentences)} (기대값=1)')
-        
+
         # 해당 씬에 할당된 오디오 파일 리스트
         scene_audios = sentence_audio_paths[scene_idx]
 
-        # ✅ 체크 2: 씬 내부의 문장 개수만큼 루프
         for sent_idx, text in enumerate(sentences):
             audio_path = scene_audios[sent_idx] if sent_idx < len(scene_audios) else ""
-            image_prompt = prompts[sent_idx] if sent_idx < len(prompts) else scene.get('image_prompt', '')
+            image_prompt = scene.get('image_prompt', '')
 
             # 오디오 길이 측정
             try:

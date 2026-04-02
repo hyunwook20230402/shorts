@@ -36,6 +36,14 @@ webtoon_style_prefix = (
     '9:16 vertical format, high quality illustration, '
 )
 
+NLP_CHUNK_SIZE = int(os.getenv('NLP_CHUNK_SIZE', '8'))
+
+
+def chunk_ocr_text(text: str, chunk_size: int = NLP_CHUNK_SIZE) -> list[str]:
+  """OCR 텍스트를 chunk_size 행씩 분할. 빈 줄 제거 후 분할."""
+  lines = [ln for ln in text.splitlines() if ln.strip()]
+  return ['\n'.join(lines[i:i + chunk_size]) for i in range(0, len(lines), chunk_size)]
+
 translate_system_prompt = """당신은 한국 고전시가 번역가이자 웹툰 쇼츠 대본 작가입니다.
 원문을 분석하여 문장 단위로 씬을 분할하고 JSON을 출력하세요.
 
@@ -182,7 +190,7 @@ def split_into_sentences(text: str) -> list[str]:
   return [p.strip() for p in parts if p.strip()]
 
 
-def validate_scene(raw_scene: dict, idx: int, historical_context: str = '') -> dict:
+def validate_scene(raw_scene: dict, idx: int) -> dict:
   """
   씬 데이터 유효성 검사 및 정규화.
 
@@ -195,7 +203,6 @@ def validate_scene(raw_scene: dict, idx: int, historical_context: str = '') -> d
     'original_text': raw_scene.get('original_text', ''),
     'modern_text': modern_text,
     'modern_sentences': [modern_text],
-    'sentence_image_prompts': [],
     'narration': raw_scene.get('narration', modern_text),
     'emotion': raw_scene.get('emotion', '미정'),
     'main_focus': raw_scene.get('main_focus', 'background'),
@@ -204,7 +211,6 @@ def validate_scene(raw_scene: dict, idx: int, historical_context: str = '') -> d
       raw_scene.get('visual_elements', {}).get('background', 'traditional Korean landscape')),
     'background_weight': 1.0,
     'image_prompt': '',
-    'historical_context': historical_context,
   }
   return base
 
@@ -551,15 +557,24 @@ def process_nlp(
     logger.info('역사적 배경 조사 시작')
     historical_context = fetch_historical_context(extracted_raw_text, poem_dir)
 
-    # 5. HCX-005: 번역 + 씬 분할 (역사적 배경 주입)
+    # 5. HCX-005: 번역 + 씬 분할 (청크 단위 처리)
     logger.info('번역 + 씬 분할 시작')
-    translation_result = call_hcx005_translate(extracted_raw_text, historical_context)
-    raw_scenes = translation_result.get('scenes', [])
+    chunks = chunk_ocr_text(extracted_raw_text)
+    logger.info('OCR 텍스트를 %d개 청크로 분할 (청크당 최대 %d행)', len(chunks), NLP_CHUNK_SIZE)
+    raw_scenes, title, author = [], '', ''
+    for chunk_idx, chunk in enumerate(chunks):
+      logger.info('청크 %d/%d 번역 중 (%d행)', chunk_idx + 1, len(chunks), len(chunk.splitlines()))
+      result = call_hcx005_translate(chunk, historical_context)
+      raw_scenes.extend(result.get('scenes', []))
+      if chunk_idx == 0:
+        title = result.get('title', '')
+        author = result.get('author', '')
+      logger.info('청크 %d 완료, 누적 씬: %d', chunk_idx + 1, len(raw_scenes))
     logger.info('씬 분할 완료: %d씬', len(raw_scenes))
 
-    # 6. 씬 유효성 검사 (historical_context 주입)
+    # 6. 씬 유효성 검사
     validated_scenes = [
-      validate_scene(s, i, historical_context)
+      validate_scene(s, i)
       for i, s in enumerate(raw_scenes)
     ]
 
@@ -585,33 +600,37 @@ def process_nlp(
         try:
             # LLM 호출하여 영문 프롬프트 생성
             prompt = call_hcx005_image_prompt(sentence_scene_ctx, historical_context)
-            final_prompt = f"{prompt}, {webtoon_style_prefix}"
+            final_prompt = f"{prompt}, {webtoon_style_prefix.rstrip(', ')}"
         except Exception as e:
             logger.warning(f"씬 {current_scene_idx} 프롬프트 생성 실패, fallback 적용: {e}")
             # 예외 시에도 감정 데이터를 안전하게 가져옴
             curr_emotion = scene.get('emotion', 'serene')
-            final_prompt = f"({curr_emotion} mood:1.3), Korean traditional scene, {webtoon_style_prefix}"
-        
-        # ✅ 체크 3: 1씬 1문장 원칙에 따라 데이터 구조 확정
-        scene['scene_index'] = current_scene_idx # 씬 번호 업데이트
-        scene['sentence_image_prompts'] = [final_prompt]
+            final_prompt = f"({curr_emotion} mood:1.3), Korean traditional scene, {webtoon_style_prefix.rstrip(', ')}"
+
+        # 1씬 1문장 원칙에 따라 데이터 구조 확정
+        scene['scene_index'] = current_scene_idx
         scene['image_prompt'] = final_prompt
         image_prompts.append(final_prompt)
 
     # 8. 데이터 통합 및 물리적 파일 저장 (Step 2, 3 연결용)
     modern_script_data = validated_scenes
-    
+
     # 하위 단계 파일 참조를 위해 JSON 파일로 저장
     output_json_path = poem_dir / 'step1_nlp.json'
     with open(output_json_path, 'w', encoding='utf-8') as f:
-        json.dump({'scenes': modern_script_data}, f, ensure_ascii=False, indent=2)
+      json.dump({
+        'title': title,
+        'author': author,
+        'historical_context': historical_context,
+        'scenes': modern_script_data,
+      }, f, ensure_ascii=False, indent=2)
 
     # 9. 캐시 저장
     save_to_cache(cache_path, {
         'modern_script_data': modern_script_data,
         'image_prompts': image_prompts,
-        'title': translation_result.get('title', ''),
-        'author': translation_result.get('author', ''),
+        'title': title,
+        'author': author,
     })
 
     # 10. Notion: 기록 및 상태 업데이트
