@@ -6,7 +6,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from moviepy.editor import (
@@ -60,30 +59,36 @@ def load_alignment_data(alignment_path: str) -> dict:
     return {'sentences': [], 'total_duration': 0}
 
 
-def make_subtitle_clip_for_sentence(text: str, duration: float) -> CompositeVideoClip:
-    """
-    현대어 번역본을 오디오 길이에 맞춰 노출하는 자막 클립 생성 (MoviePy 전용)
-    """
-    from moviepy.editor import TextClip, ColorClip
-    
-    # 1. 텍스트 클립 (내용)
-    txt_clip = TextClip(
-        text,
-        fontsize=SUBTITLE_FONT_SIZE,
-        color=SUBTITLE_COLOR,
-        font=str(SUBTITLE_FONT_PATH),
-        method='caption', # 긴 문장 자동 줄바꿈
-        size=(OUTPUT_WIDTH * 0.8, None),
-        align='Center'
-    ).set_duration(duration).set_position(('center', OUTPUT_HEIGHT * 0.85))
+def make_subtitle_clips(text: str, duration: float, start_time: float) -> list:
+  """
+  자막 텍스트 클립 + 배경 박스 클립 생성.
+  두 클립 모두 start_time과 화면 절대 좌표를 가지므로
+  최종 CompositeVideoClip에 바로 추가 가능.
+  """
+  from moviepy.editor import TextClip
 
-    # 2. 배경 클립 (가독성을 위한 반투명 박스)
-    bg_clip = ColorClip(
-        size=(txt_clip.w + 40, txt_clip.h + 20),
-        color=(0, 0, 0)
-    ).set_opacity(0.6).set_duration(duration).set_position(('center', OUTPUT_HEIGHT * 0.85))
+  txt_clip = TextClip(
+    text,
+    fontsize=SUBTITLE_FONT_SIZE,
+    color=SUBTITLE_COLOR,
+    font=str(SUBTITLE_FONT_PATH),
+    method='caption',
+    size=(int(OUTPUT_WIDTH * 0.85), None),
+    align='Center',
+  ).set_duration(duration).set_start(start_time)
 
-    return CompositeVideoClip([bg_clip, txt_clip])
+  # 텍스트 실제 크기 기반 배경 박스
+  bg_clip = ColorClip(
+    size=(txt_clip.w + 40, txt_clip.h + 20),
+    color=(0, 0, 0),
+  ).set_opacity(0.6).set_duration(duration).set_start(start_time)
+
+  # 화면 세로 85% 위치에 가운데 정렬
+  y_pos = int(OUTPUT_HEIGHT * 0.85)
+  bg_clip = bg_clip.set_position(('center', y_pos))
+  txt_clip = txt_clip.set_position(('center', y_pos + 10))
+
+  return [bg_clip, txt_clip]
 
 
 def concatenate_clips(
@@ -129,24 +134,25 @@ def concatenate_clips(
 
 
 def add_subtitles_to_video(video_clip, sentence_schedules: list[dict]):
-    """
-    이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음
-    """
-    subtitle_clips = []
-    current_time = 0.0
+  """이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음"""
+  subtitle_clips = []
+  current_time = 0.0
 
-    for entry in sentence_schedules:
-        text = entry.get('text', '')
-        duration = entry.get('duration', 0.0)
-        
-        if text:
-            # 위에서 만든 새로운 자막 함수 호출
-            sub = make_subtitle_clip_for_sentence(text, duration).set_start(current_time)
-            subtitle_clips.append(sub)
-            
-        current_time += duration
+  for entry in sentence_schedules:
+    text = entry.get('text', '')
+    duration = entry.get('duration', 0.0)
 
-    return CompositeVideoClip([video_clip] + subtitle_clips)
+    if text and duration > 0:
+      subtitle_clips.extend(make_subtitle_clips(text, duration, current_time))
+
+    current_time += duration
+
+  if not subtitle_clips:
+    logger.warning('자막 클립이 없습니다')
+    return video_clip
+
+  logger.info('자막 클립 %d개 생성 완료', len(subtitle_clips) // 2)
+  return CompositeVideoClip([video_clip] + subtitle_clips, size=video_clip.size)
 
 
 def composite_video_with_audio(
@@ -271,16 +277,16 @@ def compose_final_video(
     video = concatenate_clips(still_image_paths, audio_paths)
     logger.info(f'이미지 연결 완료: {video.duration:.2f}s')
 
-    # 2. 문장 단위 자막 Burn-in
+    # 2. 쇼츠 형식 리사이즈 (자막 좌표 기준이 되는 1080×1920 확정)
+    video = resize_video_to_shorts_format(video)
+    logger.info('쇼츠 형식 변환 완료')
+
+    # 3. 문장 단위 자막 Burn-in (리사이즈 후에 적용)
     try:
       video = add_subtitles_to_video(video, sentence_schedules)
       logger.info('자막 Burn-in 완료')
     except Exception as e:
       logger.warning(f'자막 추가 실패 (계속): {e}')
-
-    # 3. 쇼츠 형식 리사이즈
-    video = resize_video_to_shorts_format(video)
-    logger.info('쇼츠 형식 변환 완료')
 
     # 4. 최종 저장
     output_path.parent.mkdir(parents=True, exist_ok=True)
