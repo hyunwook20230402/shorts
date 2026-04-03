@@ -80,27 +80,32 @@ edge-tts 음성 + SD 1.5 정지이미지 + PIL 자막으로 씬별 영상을 자
 
 ---
 
-## 캐시 디렉토리 구조
+## 캐시 디렉토리 구조 (이원화)
+
+CLI 실행과 UI 실행의 캐시가 분리되어 있습니다.
 
 ```
-notebook/cache/
-├── task_states.json          # 전체 task 상태 관리 (PersistentTaskDict)
-├── poem_01/                  # 시 1 캐시
+notebook/cache/                 # CLI 실행 캐시 (cd notebook && python step*.py)
+├── poem_01/                    # 시 1 캐시
 │   ├── step0_ocr.txt
 │   ├── step1_nlp.json
-│   ├── step1_context.txt
 │   ├── step2_scene00_sent00_audio.mp3
-│   ├── step2_scene00_sent00_alignment.json
-│   ├── step2_scene01_sent00_audio.mp3
-│   ├── ...
 │   ├── step3_sentence_schedule.json
 │   ├── step4_scene00_sent00_still.png
-│   ├── step4_scene01_sent00_still.png
-│   ├── ...
 │   └── step5_shorts.mp4
-├── poem_02/                  # 시 2 캐시 (동일 구조)
-├── reference/                # IP-Adapter 참조 이미지
-└── uploads/                  # 업로드 임시 파일
+├── poem_02/                    # 시 2 캐시 (동일 구조)
+└── reference/                  # IP-Adapter 참조 이미지
+
+upload_cache/                   # UI 업로드 캐시 (FastAPI + Streamlit)
+├── task_states.json            # 전체 task 상태 관리 (PersistentTaskDict)
+├── poem_registry.json          # poem_id 레지스트리
+├── uploads/                    # 업로드 원본 이미지
+│   └── {task_id}_{filename}
+├── poem_01/                    # UI에서 생성된 poem 캐시 (동일 구조)
+│   ├── original.png
+│   ├── step0_ocr.txt ~ step5_shorts.mp4
+│   └── ...
+└── poem_02/
 ```
 
 ---

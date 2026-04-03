@@ -137,10 +137,11 @@ if 총 프레임 > CHUNK_SIZE:
 ## 향후 예방 규칙
 
 1. **캐시 키/경로**: Step 모듈의 `get_cache_path()` 함수만 사용
-2. **선택적 파라미터**: API 라우터에서 명시적으로 전달
-3. **상태 명시성**: 각 Step 완료/실패 후 `task.status` 명시적 설정
-4. **Streamlit 폴링**:
+2. **캐시 이원화**: CLI(`notebook/cache/`)와 UI(`upload_cache/`)는 분리된 캐시 사용. 상대경로 `cache/` 하드코딩 금지 — 반드시 `poem_dir` 인자 기반으로 경로 생성.
+3. **선택적 파라미터**: API 라우터에서 명시적으로 전달
+4. **상태 명시성**: 각 Step 완료/실패 후 `task.status` 명시적 설정
+5. **Streamlit 폴링**:
    - `@st.cache_data(ttl=N)` ❌ (결과 캐싱이 부작용 야기)
    - `@st.fragment(run_every=N)` ✅ (폴링 블록만 재실행, 캐시 없음)
-5. **타임스탬프 오프셋**: 씬별 alignment 사용 시 항상 누적 오프셋 더하기
-6. **VRAM 보호**: 장시간 영상은 청크 분할 후 concat
+6. **타임스탬프 오프셋**: 씬별 alignment 사용 시 항상 누적 오프셋 더하기
+7. **VRAM 보호**: 장시간 영상은 청크 분할 후 concat

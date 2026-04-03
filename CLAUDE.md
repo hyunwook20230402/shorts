@@ -31,10 +31,24 @@ Step 4: 정지이미지       ComfyUI SD1.5 (국풍 LoRA + IP-Adapter)로 문장
 Step 5: 최종 병합        이미지+오디오 슬라이드쇼 + 타임스탬프 자막 Burn-in (1080×1920, 30fps)
 ```
 
+## 캐시 구조 (이원화)
+
+**CLI 실행** (`cd notebook && python step*.py`):
+- 캐시 경로: `notebook/cache/{poem_id}/`
+- CWD가 `notebook/`이므로 상대경로 `cache/{poem_id}/`로 접근
+
+**UI 실행** (FastAPI + Streamlit):
+- 캐시 경로: `upload_cache/{poem_id}/`
+- 상태 파일: `upload_cache/task_states.json` (`PersistentTaskDict`)
+- 레지스트리: `upload_cache/poem_registry.json` (`PoemRegistry`)
+- 업로드: `upload_cache/uploads/{task_id}_{filename}`
+
+**공통**: 각 Step 모듈의 `get_cache_path(poem_dir)` 함수는 `poem_dir` 인자를 받으므로, CLI든 UI든 동일하게 동작.
+
 ## 핵심 데이터 구조 (v2)
 
 **상태 관리 (`task_status_dict`):**
-- JSON 파일 기반 (`cache/task_states.json`), `PersistentTaskDict` 클래스로 다중 프로세스 영속화
+- JSON 파일 기반 (`upload_cache/task_states.json`), `PersistentTaskDict` 클래스로 다중 프로세스 영속화
 - 주요 필드:
   - `sentence_audio_paths: list[list[str]]` — Step 2 문장별 MP3 경로 `[씬][문장]`
   - `sentence_alignment_paths: list[list[str]]` — Step 2 문장별 alignment JSON 경로
@@ -66,7 +80,7 @@ COMFYUI_MAX_WAIT=1200      # 최대 대기(초)
 IPADAPTER_MODEL=ip-adapter_sd15.bin
 IPADAPTER_WEIGHT=0.5
 CLIP_VISION_MODEL=clip_vision_h14.safetensors
-REFERENCE_IMAGE_PATH=cache/reference/character.png
+REFERENCE_IMAGE_PATH=notebook/cache/reference/character.png
 REFERENCE_IMAGE_PATH2=     # 두 번째 참조 이미지 (선택)
 
 # 자막
@@ -75,23 +89,23 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 
 ## Step 주요 결정사항
 
-**Step 0 (OCR):** HCX-005, 캐시 `cache/{poem_id}/step0_ocr.txt`
+**Step 0 (OCR):** HCX-005, 캐시 `{poem_dir}/step0_ocr.txt`
 
-**Step 1 (NLP):** HCX-005 번역 + gpt-4o-mini 이미지 프롬프트, 캐시 `cache/{poem_id}/step1_nlp.json`
+**Step 1 (NLP):** HCX-005 번역 + gpt-4o-mini 이미지 프롬프트, 캐시 `{poem_dir}/step1_nlp.json`
 
-**Step 2 (edge-tts):** 문장 단위 MP3 + alignment JSON (추정 타임스탬프), 캐시 `cache/{poem_id}/step2_scene{NN}_sent{MM}_audio.mp3|_alignment.json`
+**Step 2 (edge-tts):** 문장 단위 MP3 + alignment JSON, 캐시 `{poem_dir}/step2_scene{NN}_sent{MM}_audio.mp3|_alignment.json`
 
-**Step 3 (문장 스케줄링):** 문장 단위 duration/prompt/audio_path 매핑, 캐시 `cache/{poem_id}/step3_sentence_schedule.json`
+**Step 3 (문장 스케줄링):** 문장 단위 duration/prompt/audio_path 매핑, 캐시 `{poem_dir}/step3_sentence_schedule.json`
 
-**Step 4 (SD 1.5 정지이미지):** 국풍 LoRA + IP-Adapter, 캐시 `cache/{poem_id}/step4_scene{NN}_sent{MM}_still.png`
+**Step 4 (SD 1.5 정지이미지):** 국풍 LoRA + IP-Adapter, 캐시 `{poem_dir}/step4_scene{NN}_sent{MM}_still.png`
 
-**Step 5 (병합):** 이미지+오디오 슬라이드쇼 + PIL 자막 burn-in, 씬 누적 오프셋 적용, 캐시 `cache/{poem_id}/step5_shorts.mp4`
+**Step 5 (병합):** 이미지+오디오 슬라이드쇼 + PIL 자막 burn-in, 씬 누적 오프셋 적용, 캐시 `{poem_dir}/step5_shorts.mp4`
 
 **백엔드 (API):** FastAPI ThreadPoolExecutor(max_workers=2), Streamlit `@st.fragment(run_every=2)` 폴링
 
 ## 에이전트 자동 호출 (v2)
 
-**⚠️ 중요: 이 표는 Claude Code 자신에 대한 지시입니다.**
+**이 표는 Claude Code 자신에 대한 지시입니다.**
 코드에서 자동 호출되는 것이 아니라, Claude Code가 아래 상황을 감지했을 때 서브에이전트로 호출해야 합니다.
 
 | 상황 | 에이전트 | 목적 |
@@ -109,7 +123,7 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 |------|--------|------|
 | `pipeline-status-check` | "상태 확인", "어디까지 됐어" | Step 0~5 진행도 시각화 |
 | `cache-integrity-check` | Step 에러 / "캐시 확인" | 캐시 파일 무결성 검증 |
-| `comfyui-health-check` | Step 4 실패 / "ComfyUI 확인" | 서버·모델 파일 점검 |
+| `comfyui-health-check` | Step 4 실패 / "ComfyUI 확인" | 서버/모델 파일 점검 |
 | `env-setup-validator` | "환경변수 맞아?" | .env 필수 키 검증 |
 | `step-output-preview` | "결과 봐줘" | Step별 캐시 요약 출력 |
 
@@ -130,20 +144,21 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 - `routes/steps.py` — Step 0~5 실행 엔드포인트
 - `routes/tasks.py` — 작업 상태 조회
 - `routes/upload.py` — 이미지 업로드
+- `routes/files.py` — 캐시 파일 서빙 (poem_id 기반)
 
 ## 참고 자료 (rules/)
 
 | 파일 | 핵심 내용 |
 |------|----------|
 | `bug_fixes_and_lessons.md` | v2 교훈: 타임스탬프 오프셋, VRAM 청크, 캐시 호환성 |
-| `code-style.md` | 들여쓰기 2칸, snake_case, 타입힌팅, SRP, 디스크 캐싱, get_cache_path() 의무화 |
+| `code-style.md` | 들여쓰기 2칸, snake_case, 타입힌팅, SRP, get_cache_path() 의무화 |
 | `naming_conventions.md` | 엄격한 snake_case, 함수명 동사 시작, FastAPI `/api/v1/` 접두사 |
 | `error_handling_logging.md` | 3회 재시도 + 지수 백오프, logging 모듈, 에러 시 Notion 동기화 |
 | `git-rules.md` | 한글 커밋 메시지, feature/fix 브랜치, 커밋 전 `ruff check .` |
 | `Security_Configuration.md` | 하드코딩 금지, `.env` + pydantic-settings |
-| `cache-management.md` | 캐시 키 패턴, poem_dir 기반 경로, PersistentTaskDict 규칙 |
+| `cache-management.md` | 캐시 이원화 (CLI: notebook/cache, UI: upload_cache), poem_dir 기반 |
 | `streamlit-patterns.md` | @st.cache_data 금지, @st.fragment 폴링 패턴 |
 
 ---
 
-**마지막 업데이트:** 2026-04-03 (v2 문서 정비 — 실제 구현 반영, Skills 추가, 파일 구조 정리)
+**마지막 업데이트:** 2026-04-03 (캐시 이원화 반영 — CLI: notebook/cache, UI: upload_cache)

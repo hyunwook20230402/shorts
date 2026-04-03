@@ -9,7 +9,7 @@ Step 실행 중 에러가 발생하거나 캐시 확인 요청 시 아래 절차
 
 ## 절차
 
-1. **대상 poem_dir 식별**: `notebook/cache/task_states.json`에서 활성 task의 poem_id를 읽고 `notebook/cache/{poem_id}/` 경로를 결정합니다.
+1. **대상 poem_dir 식별**: UI 환경은 `upload_cache/task_states.json`, CLI 환경은 `notebook/cache/`에서 활성 task의 poem_id를 읽고 해당 `{poem_dir}/` 경로를 결정합니다.
 
 2. **Step 0 검증**:
    - `step0_ocr.txt`: 파일 크기 > 0, 한글 텍스트 포함 여부
