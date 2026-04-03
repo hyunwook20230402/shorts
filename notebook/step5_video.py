@@ -62,7 +62,7 @@ def render_subtitle_image(text: str, canvas_width: int, canvas_height: int):
   """
   PIL로 자막 텍스트를 RGBA 이미지로 렌더링.
   배경 없이 흰색 텍스트만, 캔버스 크기는 canvas_width × canvas_height.
-  텍스트는 세로 85% 위치에 가로 가운데 정렬.
+  텍스트는 세로 50% 위치에 가로 가운데 정렬.
   """
   import numpy as np
   from PIL import Image, ImageDraw, ImageFont
@@ -101,8 +101,8 @@ def render_subtitle_image(text: str, canvas_width: int, canvas_height: int):
   line_height = draw.textbbox((0, 0), '가', font=font)[3] + 8
   total_text_height = line_height * len(lines)
 
-  # 세로 85% 위치 기준 가운데 정렬
-  y_center = int(canvas_height * 0.85)
+  # 세로 50% 위치 기준 가운데 정렬
+  y_center = int(canvas_height * 0.50)
   y_start = y_center - total_text_height // 2
 
   for line in lines:
@@ -149,8 +149,12 @@ def concatenate_clips(
       audio = AudioFileClip(audio_paths[clip_idx])
       audio_duration = audio.duration
 
-      # PNG 이미지를 ImageClip으로 로드, 오디오 길이만큼 duration 설정
-      clip = ImageClip(still_path).set_duration(audio_duration).set_fps(OUTPUT_FPS)
+      # PNG 이미지를 uint8 배열로 로드 (float64 메모리 초과 방지)
+      import numpy as np
+      from PIL import Image as PILImage
+      img = PILImage.open(still_path).convert('RGB')
+      img_arr = np.array(img, dtype=np.uint8)
+      clip = ImageClip(img_arr, ismask=False).set_duration(audio_duration).set_fps(OUTPUT_FPS)
       clip = clip.set_audio(audio)
 
       clips.append(clip)

@@ -3,6 +3,7 @@
 
 # 캐시 디렉토리
 cache/
+upload_cache/
 
 # Python
 __pycache__/

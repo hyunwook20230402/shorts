@@ -129,13 +129,17 @@ def poll_until_complete(task_id: str, placeholder) -> dict | None:
 with st.sidebar:
   st.title('⚙️ 설정')
 
-  # API 서버 주소
-  api_base = st.text_input(
-    'FastAPI 서버 주소',
-    value=st.session_state.api_base,
-    help='기본값: http://127.0.0.1:8001/api/v1'
-  )
-  st.session_state.api_base = api_base or 'http://127.0.0.1:8001/api/v1'
+  # API 연결 상태 확인
+  try:
+    _health_resp = requests.get(f'{st.session_state.api_base}/health', timeout=3)
+    if _health_resp.status_code == 200:
+      st.success('API 연결됨')
+    else:
+      st.error(f'API 응답 이상: {_health_resp.status_code}')
+  except requests.exceptions.ConnectionError:
+    st.error('API 연결 안됨')
+  except Exception:
+    st.error('API 연결 안됨')
 
   st.divider()
 
@@ -532,8 +536,13 @@ else:
 
       if status['video_path']:
         try:
-          video_filename = Path(status['video_path']).name
-          video_url = f"{st.session_state.api_base}/cache/video/{video_filename}"
+          video_path = Path(status['video_path'])
+          video_filename = video_path.name
+          poem_id = status.get('poem_id', '')
+          if poem_id:
+            video_url = f"{st.session_state.api_base}/cache/{poem_id}/video/{video_filename}"
+          else:
+            video_url = f"{st.session_state.api_base}/cache/video/{video_filename}"
           st.video(video_url)
 
           # 다운로드 버튼

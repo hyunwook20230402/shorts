@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-POEM_REGISTRY_FILE = Path('cache/poem_registry.json')
+POEM_REGISTRY_FILE = Path('upload_cache/poem_registry.json')
 
 
 class PoemRegistry:
@@ -94,4 +94,4 @@ class PoemRegistry:
 
   def get_poem_dir(self, poem_id: str) -> Path:
     """poem_id로부터 캐시 폴더 경로 도출"""
-    return Path(f'cache/{poem_id}')
+    return Path(f'upload_cache/{poem_id}')

@@ -11,7 +11,7 @@ from api.poem_registry import PoemRegistry
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-UPLOAD_DIR = Path('cache/uploads')
+UPLOAD_DIR = Path('upload_cache/uploads')
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=2)
 
 # task 상태 영속화 파일
-TASK_STATE_FILE = Path('cache/task_states.json')
+TASK_STATE_FILE = Path('upload_cache/task_states.json')
 
 
 class PersistentTaskDict:
