@@ -26,18 +26,7 @@ STABLE_AUDIO_MODEL = os.getenv('STABLE_AUDIO_MODEL', 'stabilityai/stable-audio-o
 BGM_VOLUME = float(os.getenv('BGM_VOLUME', '0.25'))
 BGM_SAMPLE_RATE = 44100  # Stable Audio 출력 샘플레이트
 BGM_CHANNELS = 2  # 스테레오
-
-
-# 감정 매핑: emotion → BGM 프롬프트
-EMOTION_PROMPT_MAP = {
-  'peaceful': 'soft, ambient, traditional Korean guqin, peaceful, meditative',
-  'joyful': 'bright, uplifting, traditional Korean music, cheerful, gentle',
-  'melancholic': 'soft, melancholic piano, traditional Korean haegeum, contemplative',
-  'solemn': 'serious, orchestral, traditional Korean court music, majestic',
-  'dramatic': 'intense, dramatic, traditional Korean pansori-inspired, powerful',
-  'romantic': 'romantic, gentle, traditional Korean gayageum, tender',
-  'mysterious': 'mysterious, ambient, traditional Korean bamboo flute, enigmatic',
-}
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
 DEFAULT_EMOTION_PROMPT = 'soft, ambient, traditional Korean music, peaceful instrumental'
 
@@ -57,28 +46,58 @@ def load_nlp_data(nlp_path: str) -> dict:
     return {}
 
 
-def generate_bgm_prompt(nlp_data: dict) -> str:
-  """
-  NLP 데이터의 scenes 감정 목록에서 대표 감정 추출 후
-  동적으로 BGM 프롬프트 생성
-  """
-  if not nlp_data or 'scenes' not in nlp_data:
-    logger.warning('씬 감정 정보 없음, 기본 프롬프트 사용')
+def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
+  """gpt-4o-mini로 씬 전체 정보 기반 BGM 프롬프트 생성"""
+  scenes = nlp_data.get('modern_script_data') or nlp_data.get('scenes', [])
+
+  if not scenes:
+    logger.warning('씬 정보 없음, fallback 사용')
     return DEFAULT_EMOTION_PROMPT
 
-  emotions = [scene.get('emotion', 'peaceful') for scene in nlp_data['scenes']]
-  emotion_counts = {}
-  for emotion in emotions:
-    emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+  # 씬 정보 수집
+  emotions = [s.get('emotion', '') for s in scenes]
+  atmospheres = [s.get('visual_elements', {}).get('atmosphere', '') for s in scenes]
+  backgrounds = list({s.get('background', '') for s in scenes})
+  narrations = [s.get('narration', '') for s in scenes]
 
-  # 가장 많은 감정 선택 (tie일 경우 첫 번째)
-  dominant_emotion = max(emotion_counts, key=emotion_counts.get, default='peaceful')
-  prompt = EMOTION_PROMPT_MAP.get(dominant_emotion, DEFAULT_EMOTION_PROMPT)
+  context = f"""다음은 한국 고전시가 쇼츠 영상의 씬 정보입니다.
+감정: {', '.join(emotions)}
+분위기: {', '.join(atmospheres)}
+배경: {', '.join(backgrounds)}
+나레이션: {' / '.join(narrations)}
 
-  logger.info(f'씬 감정 분석: {emotion_counts} → 대표: {dominant_emotion}')
-  logger.info(f'BGM 프롬프트: {prompt}')
+위 정보를 바탕으로 Stable Audio 모델에 입력할 배경음악 프롬프트를 영어로 생성하세요.
+조건:
+- 한국 전통음악 느낌 포함 (gayageum, haegeum, daegeum, geomungo 등 적절히 선택)
+- 전체 영상의 감정 흐름을 반영 (단일 감정이 아닌 전체 서사)
+- Stable Audio 프롬프트 형식: 쉼표로 구분된 키워드/구문
+- 30단어 이내
+프롬프트만 출력하세요 (설명 없이):"""
 
-  return prompt
+  try:
+    from openai import OpenAI
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    response = client.chat.completions.create(
+      model='gpt-4o-mini',
+      messages=[{'role': 'user', 'content': context}],
+      max_tokens=100,
+      temperature=0.7,
+    )
+    prompt = response.choices[0].message.content.strip()
+    logger.info(f'LLM 생성 BGM 프롬프트: {prompt}')
+    return prompt
+  except Exception as e:
+    logger.warning(f'LLM 호출 실패 ({e}), fallback 사용')
+    return DEFAULT_EMOTION_PROMPT
+
+
+def generate_bgm_prompt(nlp_data: dict) -> str:
+  """LLM 기반 BGM 프롬프트 생성"""
+  if not nlp_data:
+    logger.warning('NLP 데이터 없음, 기본 프롬프트 사용')
+    return DEFAULT_EMOTION_PROMPT
+
+  return generate_bgm_prompt_with_llm(nlp_data)
 
 
 def generate_stable_audio(prompt: str, duration_seconds: float) -> tuple:
