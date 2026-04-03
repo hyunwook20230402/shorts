@@ -335,24 +335,30 @@ def compose_final_video(
 
   # 테마 기반 자막 스타일 로드
   nlp_path = Path(poem_dir) / 'step1_nlp.json'
-  theme_code = 'A'
+  primary_theme = 'A'
+  surface_theme = 'A'
   if nlp_path.exists():
     try:
       with open(nlp_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-      theme_code = nlp_data.get('theme', 'A')
+      primary_theme = nlp_data.get('primary_theme', nlp_data.get('theme', 'A'))
+      surface_theme = nlp_data.get('surface_theme', nlp_data.get('theme', 'A'))
     except Exception:
-      pass
+      primary_theme = 'A'
+      surface_theme = 'A'
 
   try:
     from theme_config import get_bgm_volume, get_subtitle_style
-    subtitle_style = get_subtitle_style(theme_code)
-    bgm_volume = get_bgm_volume(theme_code)
+    subtitle_style = get_subtitle_style(surface_theme)   # 자막: 시각적 표면 테마
+    bgm_volume = get_bgm_volume(primary_theme)           # 볼륨: 감정 진심 테마
   except Exception:
     subtitle_style = {'color': (0, 0, 0), 'size': 48, 'opacity': 1.0}
     bgm_volume = {'narration': 0.9, 'bgm': 0.25}
 
-  logger.info(f'테마={theme_code}, 자막색={subtitle_style["color"]}, 자막크기={subtitle_style["size"]}')
+  logger.info(
+    f'primary_theme={primary_theme}, surface_theme={surface_theme}, '
+    f'자막색={subtitle_style["color"]}, 자막크기={subtitle_style["size"]}'
+  )
 
   tmp_bgm_path = None
   try:

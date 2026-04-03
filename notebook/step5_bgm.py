@@ -82,7 +82,7 @@ def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
   theme_config.THEME_BGM_HINTS를 LLM 컨텍스트에 추가.
   """
   scenes = nlp_data.get('modern_script_data') or nlp_data.get('scenes', [])
-  theme_code = nlp_data.get('theme', 'A')
+  theme_code = nlp_data.get('primary_theme', nlp_data.get('theme', 'A'))
 
   # 테마 힌트 로드
   try:
@@ -194,7 +194,7 @@ def run_step5(poem_dir: str, use_cache: bool = True) -> str:
 
   # NLP 데이터 로드 (테마 확인용)
   nlp_data = load_nlp_data(poem_dir)
-  theme_code = nlp_data.get('theme', 'A')
+  theme_code = nlp_data.get('primary_theme', nlp_data.get('theme', 'A'))
   logger.info(f'테마: {theme_code}')
 
   # 전체 영상 길이 계산

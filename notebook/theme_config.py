@@ -26,20 +26,25 @@ DEFAULT_THEME = "A"  # fallback: 강호자연 (가장 중립적)
 # ─── Step 1: 테마 분류 LLM 프롬프트용 ───
 
 def get_theme_classification_prompt() -> str:
-  """Step 1 LLM 시스템 프롬프트에 삽입할 테마 분류 지시문"""
-  lines = ["이 시의 전체 테마/주제를 다음 13개 중 하나로 선택하세요:"]
+  """Step 1 LLM 시스템 프롬프트에 삽입할 테마 분류 지시문 (이중 테마)"""
+  lines = ["이 시의 테마/주제를 분석하여 다음 13개 카탈로그 중에서 선택하세요:"]
   for code, info in THEME_CATALOG.items():
     lines.append(f"  {code}. {info['ko']} — {info['desc']}")
 
   lines.append("")
-  lines.append("중첩 해소 규칙:")
-  lines.append("- 연군 vs 애정: 신하-임금이면 B(연군), 남녀면 E(애정)")
-  lines.append("- 충절 vs 연군: 충성 의지이면 C(충절), 임금 그리움이면 B(연군)")
-  lines.append("- 이별 vs 애정: 이별/기다림이면 F(이별), 사랑 자체면 E(애정)")
-  lines.append("- 유배 vs 연군: 유배 고난이면 D(유배), 임금 그리움이면 B(연군)")
-  lines.append("- 강호자연 vs 교훈: 자연미면 A(강호), 윤리면 G(교훈)")
+  lines.append("[중첩 해소 및 복합 주제 규칙]")
+  lines.append("- 고전 시가는 표면적 화자(예: 이별한 여성)와 이면적 의도(예: 유배된 신하)가 다른 경우가 많습니다.")
+  lines.append("- 'primary_theme': 시의 궁극적 핵심 진심(해설/나레이션용).")
+  lines.append("- 'surface_theme': 표면적 시적 상황(이미지 생성용). 같을 경우 동일 코드 사용.")
+  lines.append("- 연군 vs 애정: 실제 작가가 임금을 그리워하는 내용이라도, 시적 화자가 여성이면 primary=B, surface=E 또는 F")
+  lines.append("- 충절 vs 연군: 충성 의지이면 C, 임금 그리움이면 B")
+  lines.append("- 이별 vs 애정: 이별/기다림이면 F, 사랑 자체면 E")
+  lines.append("- 유배 vs 연군: 유배 고난이면 D, 임금 그리움이면 B")
+  lines.append("- 강호자연 vs 교훈: 자연미면 A, 윤리면 G")
   lines.append("")
-  lines.append('응답 JSON 최상위에 "theme": "코드(A~M)", "theme_en": "영문키" 필드를 반드시 포함하세요.')
+  lines.append("응답 JSON 최상위에 다음 4개 필드를 반드시 포함하세요:")
+  lines.append('"primary_theme": "코드(A~M)", "primary_theme_en": "영문키",')
+  lines.append('"surface_theme": "코드(A~M)", "surface_theme_en": "영문키"')
 
   return "\n".join(lines)
 
@@ -168,6 +173,11 @@ DEFAULT_BGM_VOLUME = {"narration": 0.9, "bgm": 0.25}
 
 
 # ─── 헬퍼 함수 ───
+
+def get_image_style_guide(theme_code: str) -> str:
+  """surface_theme 코드 → 이미지 스타일 가이드 문자열"""
+  return THEME_IMAGE_STYLE_GUIDE.get(theme_code, THEME_IMAGE_STYLE_GUIDE[DEFAULT_THEME])
+
 
 def get_theme_info(theme_code: str) -> dict[str, str]:
   """테마 코드 → 카탈로그 정보 (fallback: DEFAULT_THEME)"""

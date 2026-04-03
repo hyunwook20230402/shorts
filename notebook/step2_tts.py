@@ -444,7 +444,7 @@ async def generate_all_audio(
     try:
       with open(nlp_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-      theme_code = nlp_data.get('theme', 'A')
+      theme_code = nlp_data.get('primary_theme', nlp_data.get('theme', 'A'))
       from theme_config import get_tts_params
       tts_params = get_tts_params(theme_code)
       tts_rate = tts_params.get('rate', '+0%')

@@ -522,7 +522,7 @@ def generate_all_images(
     try:
       with open(nlp_path, 'r', encoding='utf-8') as f:
         nlp_data = json.load(f)
-      theme_code = nlp_data.get('theme', 'A')
+      theme_code = nlp_data.get('surface_theme', nlp_data.get('theme', 'A'))
     except Exception:
       pass
 
