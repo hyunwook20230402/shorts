@@ -241,12 +241,19 @@ if __name__ == '__main__':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-  if len(sys.argv) < 3:
-    print('사용법: python step0_ocr.py <이미지_경로> <poem_dir>') # /notebook python step0_ocr.py 이미지파일 "cache/poem_nn"
+  if len(sys.argv) < 2:
+    print('사용법: python step0_ocr.py <이미지_경로> [poem_dir]')
+    print('  예: python step0_ocr.py 구강_북새곡.png "cache/poem_01"')
+    print('  poem_dir 생략 시: cache/{이미지파일명} 자동 사용')
     sys.exit(1)
 
   image_file = sys.argv[1]
-  poem_directory = sys.argv[2]
+  if len(sys.argv) >= 3:
+    poem_directory = sys.argv[2]
+  else:
+    # poem_dir 기본값: cache/{이미지파일명(확장자 제거)}
+    poem_directory = f"cache/{Path(image_file).stem}"
+    logger.info('poem_dir 자동 설정: %s', poem_directory)
 
   try:
     result_text = extract_text_from_image(image_file, poem_directory)
