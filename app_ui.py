@@ -105,7 +105,7 @@ def poll_until_complete(task_id: str, placeholder) -> dict | None:
     with placeholder.container():
       col1, col2 = st.columns([3, 1])
       with col1:
-        st.progress((current_step + 1) / 6, f"Step {current_step}")
+        st.progress((current_step + 1) / 7, f"Step {current_step}")
         st.write(status['status_message'])
       with col2:
         st.write(f'⏱️ {int(elapsed)}초')
@@ -189,7 +189,7 @@ with st.sidebar:
     if status:
       st.write(f"**Task ID**: `{st.session_state.task_id[:8]}...`")
       st.write(f"**상태**: {status['status']}")
-      st.write(f"**Step**: {status['current_step']}/5")
+      st.write(f"**Step**: {status['current_step']}/6")
 
 
 # ============================================================================
@@ -208,7 +208,7 @@ else:
   else:
     st.title('📺 고전시가 → YouTube Shorts 자동 생성')
 
-    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🔊 Step 2: 음성+타임스탬프', '📋 Step 3: 문장 스케줄', '🎨 Step 4: 정지이미지', '✅ Step 5: 최종 병합'])
+    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🔊 Step 2: 음성+타임스탬프', '📋 Step 3: 문장 스케줄', '🎨 Step 4: 정지이미지', '🎵 Step 5: BGM', '🎬 Step 6: 영상 병합'])
 
     # ========================================================================
     # Tab 0: OCR
@@ -529,36 +529,22 @@ else:
         polling_step4()
 
     # ========================================================================
-    # Tab 5: 영상
+    # Tab 5: BGM 생성
     # ========================================================================
     with tabs[5]:
-      st.subheader('🎬 최종 영상 (1080×1920)')
+      st.subheader('🎵 BGM 생성 (Stable Audio)')
 
-      if status['video_path']:
+      if status.get('bgm_path'):
         try:
-          video_path = Path(status['video_path'])
-          video_filename = video_path.name
-          poem_id = status.get('poem_id', '')
-          if poem_id:
-            video_url = f"{st.session_state.api_base}/cache/{poem_id}/video/{video_filename}"
-          else:
-            video_url = f"{st.session_state.api_base}/cache/video/{video_filename}"
-          st.video(video_url)
-
-          # 다운로드 버튼
-          with open(status['video_path'], 'rb') as f:
-            st.download_button(
-              label='⬇️ 영상 다운로드',
-              data=f.read(),
-              file_name=video_filename,
-              mime='video/mp4'
-            )
+          with open(status['bgm_path'], 'rb') as f:
+            st.audio(f.read(), format='audio/wav')
+          st.caption(f'BGM 파일: {Path(status["bgm_path"]).name}')
         except Exception as e:
-          st.error(f'영상 로드 오류: {e}')
+          st.error(f'BGM 로드 오류: {e}')
       elif status.get('error_log', {}).get('step5'):
         st.error(f"❌ Step 5 오류: {status['error_log']['step5']}")
       else:
-        st.info('Step 5를 실행하면 결과가 표시됩니다')
+        st.info('Step 5를 실행하면 BGM이 생성됩니다')
 
       if st.button('▶️ Step 5 실행', key='step5_run'):
         try:
@@ -592,3 +578,68 @@ else:
               st.rerun(scope="app")
 
         polling_step5()
+
+    # ========================================================================
+    # Tab 6: 영상 병합
+    # ========================================================================
+    with tabs[6]:
+      st.subheader('🎬 최종 영상 (1080×1920)')
+
+      if status['video_path']:
+        try:
+          video_path = Path(status['video_path'])
+          video_filename = video_path.name
+          poem_id = status.get('poem_id', '')
+          if poem_id:
+            video_url = f"{st.session_state.api_base}/cache/{poem_id}/video/{video_filename}"
+          else:
+            video_url = f"{st.session_state.api_base}/cache/video/{video_filename}"
+          st.video(video_url)
+
+          # 다운로드 버튼
+          with open(status['video_path'], 'rb') as f:
+            st.download_button(
+              label='⬇️ 영상 다운로드',
+              data=f.read(),
+              file_name=video_filename,
+              mime='video/mp4'
+            )
+        except Exception as e:
+          st.error(f'영상 로드 오류: {e}')
+      elif status.get('error_log', {}).get('step6'):
+        st.error(f"❌ Step 6 오류: {status['error_log']['step6']}")
+      else:
+        st.info('Step 6를 실행하면 결과가 표시됩니다')
+
+      if st.button('▶️ Step 6 실행', key='step6_run'):
+        try:
+          resp = requests.post(
+            f'{st.session_state.api_base}/steps/step6',
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+          )
+          if resp.status_code == 200:
+            st.session_state.step_running = 'step6'
+            st.rerun()
+          else:
+            error_detail = resp.json().get('detail', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
+            st.error(f'Step 6 실행 실패: {error_detail}')
+        except Exception as e:
+          st.error(f'Step 6 실행 오류: {e}')
+
+      if st.session_state.step_running == 'step6':
+        @st.fragment(run_every=2)
+        def polling_step6():
+          status = fetch_task_status(st.session_state.task_id)
+          if status:
+            st.info(f'⏳ {status["status_message"]}')
+            if status['error_log'].get('step6'):
+              st.error(f"❌ 오류: {status['error_log']['step6']}")
+
+            if status['status'] == 'completed':
+              st.session_state.step_running = None
+              st.rerun(scope="app")
+            elif status['status'] == 'failed':
+              st.session_state.step_running = None
+              st.rerun(scope="app")
+
+        polling_step6()
