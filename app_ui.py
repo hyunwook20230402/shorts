@@ -277,7 +277,12 @@ else:
               nlp_data = json.load(f)
 
             scenes = nlp_data.get('modern_script_data', [])
-            st.write(f'**총 {len(scenes)}개 씬**')
+            theme = nlp_data.get('theme', '')
+            theme_en = nlp_data.get('theme_en', '')
+            if theme:
+              st.write(f'**총 {len(scenes)}개 씬** | 테마: {theme} ({theme_en})')
+            else:
+              st.write(f'**총 {len(scenes)}개 씬**')
 
             for idx, scene in enumerate(scenes):
               with st.expander(f"씬 {idx + 1}: {scene.get('narration', '...')[:50]}..."):
@@ -287,11 +292,12 @@ else:
                   st.write('**원문**')
                   st.text(scene.get('original_text', ''))
 
-                  st.write('**현대어 번역**')
-                  st.text(scene.get('modern_text', ''))
+                  st.write('**자막/음성** (modern_sentences)')
+                  sentences = scene.get('modern_sentences', [scene.get('modern_text', '')])
+                  st.text('\n'.join(sentences))
 
                 with col2:
-                  st.write('**나레이션**')
+                  st.write('**이미지 참고** (narration)')
                   st.text(scene.get('narration', ''))
 
                   st.write('**감정**')

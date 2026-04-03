@@ -223,9 +223,8 @@ def extract_text_from_image(image_path: str, poem_dir: Path, use_cache: bool = T
     # 후처리
     extracted_raw_text = postprocess_ocr_text(extracted_raw_text)
 
-    # 캐시 저장
-    if use_cache:
-      save_to_cache(cache_path, extracted_raw_text)
+    # 캐시 저장 (use_cache 여부와 무관하게 항상 저장 — 하위 Step에서 필요)
+    save_to_cache(cache_path, extracted_raw_text)
 
     return extracted_raw_text
 
