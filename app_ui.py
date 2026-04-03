@@ -200,7 +200,7 @@ else:
   else:
     st.title('📺 고전시가 → YouTube Shorts 자동 생성')
 
-    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🔊 Step 2: 음성+타임스탬프', '🎞️ Step 3: 프레임 스케줄', '🎬 Step 4: 영상 클립', '✅ Step 5: 최종 병합'])
+    tabs = st.tabs(['📸 Step 0: OCR', '📝 Step 1: NLP', '🔊 Step 2: 음성+타임스탬프', '📋 Step 3: 문장 스케줄', '🎨 Step 4: 정지이미지', '✅ Step 5: 최종 병합'])
 
     # ========================================================================
     # Tab 0: OCR
@@ -324,26 +324,32 @@ else:
         polling_step1()
 
     # ========================================================================
-    # Tab 2: 이미지
+    # Tab 2: 음성+타임스탬프 (TTS)
     # ========================================================================
     with tabs[2]:
-      st.subheader('🎨 생성 이미지 (512×912)')
+      st.subheader('🔊 음성 생성 (TTS)')
 
-      if status['image_paths']:
-        cols = st.columns(3)
-        for idx, img_path in enumerate(status['image_paths']):
-          with cols[idx % 3]:
+      # v2: sentence_audio_paths (2차원), fallback: audio_paths (flat)
+      sentence_audio = status.get('sentence_audio_paths', [])
+      flat_audio = status.get('audio_paths', [])
+
+      if sentence_audio:
+        for scene_idx, scene_audios in enumerate(sentence_audio):
+          st.write(f'**씬 {scene_idx + 1}**')
+          for sent_idx, audio_path in enumerate(scene_audios):
             try:
-              img = Image.open(img_path)
-              st.image(img, use_container_width=True)
-              st.caption(f"씬 {idx + 1}")
+              with open(audio_path, 'rb') as f:
+                st.audio(f.read(), format='audio/mp3')
             except Exception as e:
-              st.error(f'이미지 로드 오류: {e}')
-
-        # QA 안내 버튼
-        if st.button('🔍 이미지 검증 실행', key='step2_qa'):
-          st.info('💬 Claude에게 "이미지 검증해줘"라고 입력하면 quality-assurance-agent가 대본-이미지 정합성을 검증합니다.')
-
+              st.error(f'오디오 로드 오류 (씬{scene_idx + 1}-문장{sent_idx + 1}): {e}')
+      elif flat_audio:
+        for idx, audio_path in enumerate(flat_audio):
+          try:
+            st.write(f'**씬 {idx + 1}**')
+            with open(audio_path, 'rb') as f:
+              st.audio(f.read(), format='audio/mp3')
+          except Exception as e:
+            st.error(f'오디오 로드 오류: {e}')
       elif status.get('error_log', {}).get('step2'):
         st.error(f"❌ Step 2 오류: {status['error_log']['step2']}")
       else:
@@ -379,19 +385,44 @@ else:
         polling_step2()
 
     # ========================================================================
-    # Tab 3: 오디오
+    # Tab 3: 문장 스케줄
     # ========================================================================
     with tabs[3]:
-      st.subheader('🔊 생성 오디오 (TTS)')
+      st.subheader('📋 문장 스케줄')
 
-      if status['audio_paths']:
-        for idx, audio_path in enumerate(status['audio_paths']):
-          try:
-            st.write(f'**씬 {idx + 1}**')
-            with open(audio_path, 'rb') as f:
-              st.audio(f.read(), format='audio/mp3')
-          except Exception as e:
-            st.error(f'오디오 로드 오류: {e}')
+      # v2: sentence_schedule_path, fallback: frame_schedule_path
+      schedule_path = status.get('sentence_schedule_path') or status.get('frame_schedule_path')
+
+      if schedule_path:
+        try:
+          schedule_file = Path(schedule_path)
+          if not schedule_file.exists():
+            st.warning(f'⚠️ 스케줄 파일을 찾을 수 없습니다: {schedule_path}')
+          else:
+            with open(schedule_file, 'r', encoding='utf-8') as f:
+              schedule_data = json.load(f)
+
+            schedules = schedule_data.get('sentence_schedules', [])
+            st.write(f'**총 {len(schedules)}개 문장 스케줄**')
+
+            # 요약 테이블
+            table_data = []
+            total_duration = 0.0
+            for idx, sched in enumerate(schedules):
+              dur = sched.get('duration', 0)
+              total_duration += dur
+              prompt = sched.get('image_prompt', '')[:50]
+              table_data.append({
+                '번호': idx + 1,
+                '길이(초)': f'{dur:.1f}',
+                '이미지 프롬프트': f'{prompt}...' if len(sched.get('image_prompt', '')) > 50 else prompt,
+              })
+
+            st.dataframe(table_data, use_container_width=True, hide_index=True)
+            st.write(f'**총 재생 시간: {total_duration:.1f}초**')
+
+        except Exception as e:
+          st.error(f'스케줄 데이터 로드 오류: {e}')
       elif status.get('error_log', {}).get('step3'):
         st.error(f"❌ Step 3 오류: {status['error_log']['step3']}")
       else:
@@ -425,18 +456,26 @@ else:
         polling_step3()
 
     # ========================================================================
-    # Tab 4: 자막
+    # Tab 4: 정지이미지 생성
     # ========================================================================
     with tabs[4]:
-      st.subheader('📄 SRT 자막')
+      st.subheader('🎨 정지이미지 생성')
 
-      if status['subtitle_path']:
-        try:
-          with open(status['subtitle_path'], 'r', encoding='utf-8') as f:
-            srt_content = f.read()
-          st.code(srt_content, language='srt')
-        except Exception as e:
-          st.error(f'자막 로드 오류: {e}')
+      if status.get('still_image_paths'):
+        st.write(f'**총 {len(status["still_image_paths"])}개 이미지 생성 완료**')
+        cols = st.columns(3)
+        for idx, img_path in enumerate(status['still_image_paths']):
+          with cols[idx % 3]:
+            try:
+              img = Image.open(img_path)
+              st.image(img, use_container_width=True)
+              st.caption(f'문장 {idx + 1}')
+            except Exception as e:
+              st.error(f'이미지 로드 오류: {e}')
+
+        if st.button('🔍 이미지 검증 실행', key='step4_qa'):
+          st.info('💬 Claude에게 "이미지 검증해줘"라고 입력하면 quality-assurance-agent가 대본-이미지 정합성을 검증합니다.')
+
       elif status.get('error_log', {}).get('step4'):
         st.error(f"❌ Step 4 오류: {status['error_log']['step4']}")
       else:

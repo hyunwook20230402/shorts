@@ -140,14 +140,10 @@ async def run_step2_endpoint(request: StepRequest) -> dict:
   if not task.nlp_cache_path:
     raise HTTPException(status_code=400, detail='NLP 데이터가 없습니다. Step 1을 먼저 실행하세요')
 
-  # ElevenLabs API 키 확인
+  # TTS 엔진 확인: ElevenLabs 키 있으면 ElevenLabs, 없으면 edge-tts fallback
   elevenlabs_api_key = os.getenv('ELEVENLABS_API_KEY', '')
   if not elevenlabs_api_key:
-    error_msg = 'ELEVENLABS_API_KEY 환경변수가 설정되지 않았습니다'
-    task.status = StepStatusEnum.failed
-    task.status_message = error_msg
-    task.error_log['step2'] = error_msg
-    raise HTTPException(status_code=503, detail=error_msg)
+    logger.info('ELEVENLABS_API_KEY 미설정 — edge-tts 기본 음성으로 진행')
 
   # 하위 스텝 캐시 무효화
   if request.invalidate_downstream:
