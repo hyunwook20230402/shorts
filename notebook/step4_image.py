@@ -35,6 +35,9 @@ CLIP_VISION_MODEL = os.getenv('CLIP_VISION_MODEL', 'clip_vision_h14.safetensors'
 REFERENCE_IMAGE_PATH = os.getenv('REFERENCE_IMAGE_PATH', 'cache/reference/character.png')
 REFERENCE_IMAGE_PATH2 = os.getenv('REFERENCE_IMAGE_PATH2', '')
 
+# 업스케일링 관련 환경변수
+UPSCALE_MODEL = os.getenv('UPSCALE_MODEL', '4x-UltraSharp.pth')
+
 MAX_RETRIES = 3
 
 
@@ -54,6 +57,20 @@ def cmd_check() -> bool:
     return True
   except Exception as e:
     logger.error(f'✗ ComfyUI 연결 실패: {e}')
+    return False
+
+
+def check_upscale_model_available() -> bool:
+  """업스케일 모델 존재 여부 확인"""
+  try:
+    response = requests.get(f'{COMFYUI_HOST}/object_info/UpscaleModelLoader', timeout=3)
+    if response.status_code == 200:
+      logger.info('✓ 업스케일 모델 로더 사용 가능')
+      return True
+    logger.warning('⚠ 업스케일 모델 로더 미지원 (단순 리사이즈로 대체)')
+    return False
+  except Exception as e:
+    logger.warning(f'⚠ 업스케일 모델 확인 실패: {e} (단순 리사이즈로 대체)')
     return False
 
 
@@ -155,9 +172,27 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
       'class_type': 'VAEDecode',
       'inputs': {'samples': ['6', 0], 'vae': ['1', 2]}
     },
+    '20': {
+      'class_type': 'UpscaleModelLoader',
+      'inputs': {'model_name': UPSCALE_MODEL}
+    },
+    '21': {
+      'class_type': 'ImageUpscaleWithModel',
+      'inputs': {'upscale_model': ['20', 0], 'image': ['7', 0]}
+    },
+    '22': {
+      'class_type': 'ImageScale',
+      'inputs': {
+        'image': ['21', 0],
+        'upscale_method': 'lanczos',
+        'width': 1080,
+        'height': 1920,
+        'crop': 'center'
+      }
+    },
     '8': {
       'class_type': 'SaveImage',
-      'inputs': {'images': ['7', 0], 'filename_prefix': 'shorts_still'}
+      'inputs': {'images': ['22', 0], 'filename_prefix': 'shorts_still'}
     }
   }
 
@@ -269,9 +304,27 @@ def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str,
     'class_type': 'VAEDecode',
     'inputs': {'samples': ['10', 0], 'vae': ['1', 2]}
   }
+  workflow['20'] = {
+    'class_type': 'UpscaleModelLoader',
+    'inputs': {'model_name': UPSCALE_MODEL}
+  }
+  workflow['21'] = {
+    'class_type': 'ImageUpscaleWithModel',
+    'inputs': {'upscale_model': ['20', 0], 'image': ['11', 0]}
+  }
+  workflow['22'] = {
+    'class_type': 'ImageScale',
+    'inputs': {
+      'image': ['21', 0],
+      'upscale_method': 'lanczos',
+      'width': 1080,
+      'height': 1920,
+      'crop': 'center'
+    }
+  }
   workflow['12'] = {
     'class_type': 'SaveImage',
-    'inputs': {'images': ['11', 0], 'filename_prefix': 'shorts_still'}
+    'inputs': {'images': ['22', 0], 'filename_prefix': 'shorts_still'}
   }
 
   return workflow
