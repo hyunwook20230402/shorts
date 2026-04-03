@@ -45,6 +45,9 @@ def fetch_task_status(task_id: str) -> dict | None:
     resp = requests.get(f'{st.session_state.api_base}/tasks/{task_id}', timeout=5)
     if resp.status_code == 200:
       return resp.json()
+    logger.warning(f'상태 조회 실패: {resp.status_code} - {resp.text[:200]}')
+  except requests.exceptions.ConnectionError:
+    logger.error(f'API 서버 연결 불가: {st.session_state.api_base}')
   except Exception as e:
     logger.error(f'상태 조회 오류: {e}')
   return None
@@ -196,7 +199,8 @@ else:
   status = fetch_task_status(st.session_state.task_id)
 
   if not status:
-    st.error('작업 정보를 불러올 수 없습니다')
+    st.error(f'작업 정보를 불러올 수 없습니다 (task_id: {st.session_state.task_id[:8]}..., API: {st.session_state.api_base})')
+    st.info('💡 API 서버가 재시작되었을 수 있습니다. 이미지를 다시 업로드해주세요.')
   else:
     st.title('📺 고전시가 → YouTube Shorts 자동 생성')
 
@@ -429,13 +433,19 @@ else:
         st.info('Step 3을 실행하면 결과가 표시됩니다')
 
       if st.button('▶️ Step 3 실행', key='step3_run'):
-        resp = requests.post(
-          f'{st.session_state.api_base}/steps/step3',
-          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-        )
-        if resp.status_code == 200:
-          st.session_state.step_running = 'step3'
-          st.rerun()
+        try:
+          resp = requests.post(
+            f'{st.session_state.api_base}/steps/step3',
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+          )
+          if resp.status_code == 200:
+            st.session_state.step_running = 'step3'
+            st.rerun()
+          else:
+            error_detail = resp.json().get('detail', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
+            st.error(f'Step 3 실행 실패: {error_detail}')
+        except Exception as e:
+          st.error(f'Step 3 실행 오류: {e}')
 
       if st.session_state.step_running == 'step3':
         @st.fragment(run_every=2)
@@ -482,13 +492,19 @@ else:
         st.info('Step 4를 실행하면 결과가 표시됩니다')
 
       if st.button('▶️ Step 4 실행', key='step4_run'):
-        resp = requests.post(
-          f'{st.session_state.api_base}/steps/step4',
-          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-        )
-        if resp.status_code == 200:
-          st.session_state.step_running = 'step4'
-          st.rerun()
+        try:
+          resp = requests.post(
+            f'{st.session_state.api_base}/steps/step4',
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+          )
+          if resp.status_code == 200:
+            st.session_state.step_running = 'step4'
+            st.rerun()
+          else:
+            error_detail = resp.json().get('detail', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
+            st.error(f'Step 4 실행 실패: {error_detail}')
+        except Exception as e:
+          st.error(f'Step 4 실행 오류: {e}')
 
       if st.session_state.step_running == 'step4':
         @st.fragment(run_every=2)
@@ -536,13 +552,19 @@ else:
         st.info('Step 5를 실행하면 결과가 표시됩니다')
 
       if st.button('▶️ Step 5 실행', key='step5_run'):
-        resp = requests.post(
-          f'{st.session_state.api_base}/steps/step5',
-          json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
-        )
-        if resp.status_code == 200:
-          st.session_state.step_running = 'step5'
-          st.rerun()
+        try:
+          resp = requests.post(
+            f'{st.session_state.api_base}/steps/step5',
+            json={'task_id': st.session_state.task_id, 'use_cache': False, 'invalidate_downstream': True}
+          )
+          if resp.status_code == 200:
+            st.session_state.step_running = 'step5'
+            st.rerun()
+          else:
+            error_detail = resp.json().get('detail', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
+            st.error(f'Step 5 실행 실패: {error_detail}')
+        except Exception as e:
+          st.error(f'Step 5 실행 오류: {e}')
 
       if st.session_state.step_running == 'step5':
         @st.fragment(run_every=2)
