@@ -109,7 +109,7 @@ image_prompt_user_prompt_prefix = """씬 정보:
 - 시대적/역사적 배경: {historical_context}
 - 감정: {emotion}
 - 배경 설명 (한국어): {background}
-- 현대어 내용: {modern_text}
+- 나레이션 (시각적 묘사): {narration}
 - 테마 스타일 가이드: {theme_style_guide}
 
 위 씬에 맞는 ComfyUI 이미지 프롬프트를 영어로 생성하세요. 프롬프트만 출력하고 설명은 금지."""
@@ -402,7 +402,7 @@ def call_hcx005_image_prompt(scene: dict, historical_context: str, theme_code: s
     historical_context=historical_context,
     emotion=scene['emotion'],
     background=scene['background'],
-    modern_text=scene['modern_text'],
+    narration=scene.get('narration', scene.get('modern_text', '')),
     theme_style_guide=style_guide,
   )
 
@@ -579,6 +579,12 @@ def process_nlp(
   if use_cache:
     cached = load_from_cache(cache_path)
     if cached is not None:
+      # 오래된 캐시 호환: theme 필드 없으면 기본값 보충 후 재저장
+      if 'theme' not in cached or 'theme_en' not in cached:
+        cached['theme'] = cached.get('theme', DEFAULT_THEME)
+        cached['theme_en'] = cached.get('theme_en', THEME_CATALOG[DEFAULT_THEME]['en'])
+        save_to_cache(cache_path, cached)
+        logger.info('캐시에 theme 필드 보충 완료: %s', cached['theme'])
       logger.info('캐시된 결과 반환')
       return cached['modern_script_data'], cached['image_prompts']
 
@@ -630,13 +636,14 @@ def process_nlp(
         sentence_text = scene.get('modern_text', '')
         
         sentence_scene_ctx = {
-            'scene_index': current_scene_idx, # 보장된 인덱스 사용
+            'scene_index': current_scene_idx,
             'emotion': scene.get('emotion', 'serene'),
             'background': scene.get('background', 'ancient Korean scenery'),
+            'narration': scene.get('narration', sentence_text),
             'modern_text': sentence_text,
             'main_focus': scene.get('main_focus', 'background'),
             'visual_elements': scene.get('visual_elements', {})
-        }  
+        }
         
         try:
             # LLM 호출하여 영문 프롬프트 생성
@@ -653,22 +660,9 @@ def process_nlp(
         scene['image_prompt'] = final_prompt
         image_prompts.append(final_prompt)
 
-    # 8. 데이터 통합 및 물리적 파일 저장 (Step 2, 3 연결용)
+    # 8. 데이터 통합 및 단일 캐시 파일 저장 (Step 2~6 연결용)
     modern_script_data = validated_scenes
 
-    # 하위 단계 파일 참조를 위해 JSON 파일로 저장
-    output_json_path = poem_dir / 'step1_nlp.json'
-    with open(output_json_path, 'w', encoding='utf-8') as f:
-      json.dump({
-        'theme': theme,
-        'theme_en': theme_en,
-        'title': title,
-        'author': author,
-        'historical_context': historical_context,
-        'scenes': modern_script_data,
-      }, f, ensure_ascii=False, indent=2)
-
-    # 9. 캐시 저장
     save_to_cache(cache_path, {
         'theme': theme,
         'theme_en': theme_en,
@@ -676,6 +670,7 @@ def process_nlp(
         'image_prompts': image_prompts,
         'title': title,
         'author': author,
+        'historical_context': historical_context,
     })
 
     # 10. Notion: 기록 및 상태 업데이트
@@ -686,7 +681,7 @@ def process_nlp(
         status='completed',
     )
 
-    logger.info('Step 1 NLP 완료. 씬 수: %d, 파일 저장: %s', len(modern_script_data), output_json_path)
+    logger.info('Step 1 NLP 완료. 씬 수: %d, 파일 저장: %s', len(modern_script_data), cache_path)
     return modern_script_data, image_prompts
 
   except Exception as e:
