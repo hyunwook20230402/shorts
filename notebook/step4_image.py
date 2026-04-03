@@ -112,7 +112,12 @@ def check_ipadapter_available() -> bool:
     return False
 
 
-def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
+def build_still_image_workflow(
+  prompt: str,
+  negative_prompt: str,
+  lora_strength: float = LORA_STRENGTH,
+  cfg_scale: float = STILL_IMAGE_CFG,
+) -> dict:
   """
   정지 이미지 생성 워크플로우 (기본 파이프라인, 8노드)
 
@@ -137,8 +142,8 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
         'model': ['1', 0],
         'clip': ['1', 1],
         'lora_name': LORA_NAME,
-        'strength_model': LORA_STRENGTH,
-        'strength_clip': LORA_STRENGTH
+        'strength_model': lora_strength,
+        'strength_clip': lora_strength
       }
     },
     '3': {
@@ -162,7 +167,7 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
         'latent_image': ['5', 0],
         'seed': 42,
         'steps': STILL_IMAGE_STEPS,
-        'cfg': STILL_IMAGE_CFG,
+        'cfg': cfg_scale,
         'sampler_name': 'euler_ancestral',
         'scheduler': 'karras',
         'denoise': 1.0
@@ -197,7 +202,13 @@ def build_still_image_workflow(prompt: str, negative_prompt: str) -> dict:
   }
 
 
-def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str, ref_image2: str | None = None) -> dict:
+def build_still_image_workflow_with_ipadapter(
+  prompt: str,
+  negative_prompt: str,
+  ref_image2: str | None = None,
+  lora_strength: float = LORA_STRENGTH,
+  cfg_scale: float = STILL_IMAGE_CFG,
+) -> dict:
   """
   IP-Adapter 기반 캐릭터 일관성 정지 이미지 생성
 
@@ -214,8 +225,8 @@ def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str,
         'model': ['1', 0],
         'clip': ['1', 1],
         'lora_name': LORA_NAME,
-        'strength_model': LORA_STRENGTH,
-        'strength_clip': LORA_STRENGTH
+        'strength_model': lora_strength,
+        'strength_clip': lora_strength
       }
     },
     '3': {
@@ -294,7 +305,7 @@ def build_still_image_workflow_with_ipadapter(prompt: str, negative_prompt: str,
       'latent_image': ['5', 0],
       'seed': 42,
       'steps': STILL_IMAGE_STEPS,
-      'cfg': STILL_IMAGE_CFG,
+      'cfg': cfg_scale,
       'sampler_name': 'euler_ancestral',
       'scheduler': 'karras',
       'denoise': 1.0
@@ -412,9 +423,15 @@ def download_generated_still(prompt_id: str) -> Optional[Path]:
     return None
 
 
-def run_comfyui_still_workflow(prompt: str, negative: str, output_name: str) -> str:
+def run_comfyui_still_workflow(
+  prompt: str,
+  negative: str,
+  output_name: str,
+  lora_strength: float = LORA_STRENGTH,
+  cfg_scale: float = STILL_IMAGE_CFG,
+) -> str:
   """ComfyUI API를 호출하여 정지 이미지를 생성하고 결과 경로 반환"""
-  workflow = build_still_image_workflow(prompt, negative)
+  workflow = build_still_image_workflow(prompt, negative, lora_strength=lora_strength, cfg_scale=cfg_scale)
   workflow['8']['inputs']['filename_prefix'] = output_name.replace('.png', '')
 
   prompt_id = submit_prompt_to_comfyui(workflow)
@@ -436,10 +453,12 @@ def generate_still_image(
   poem_dir: Path,
   use_cache: bool = True,
   use_ipadapter: bool = False,
-  ref_image2: str | None = None
+  ref_image2: str | None = None,
+  lora_strength: float = LORA_STRENGTH,
+  cfg_scale: float = STILL_IMAGE_CFG,
 ) -> str:
   """
-  문장 단위 정지 이미지 생성 (IP-Adapter 옵션 지원)
+  문장 단위 정지 이미지 생성 (IP-Adapter 옵션 + 테마별 LoRA/CFG 지원)
 
   반환: PNG 파일 경로
   """
@@ -449,18 +468,24 @@ def generate_still_image(
     logger.info(f'캐시된 정지 이미지 사용: {still_path}')
     return str(still_path)
 
-  logger.info(f'Scene {scene_idx} Sent {sent_idx} 정지 이미지 생성 중...')
+  logger.info(f'Scene {scene_idx} Sent {sent_idx} 정지 이미지 생성 중... (lora={lora_strength}, cfg={cfg_scale})')
 
   prompt = image_prompt if image_prompt else 'ancient korean landscape, ink painting'
 
   if use_ipadapter and Path(REFERENCE_IMAGE_PATH).exists() and check_ipadapter_available():
     logger.info(f'Scene {scene_idx}: IP-Adapter 워크플로우 사용')
-    workflow = build_still_image_workflow_with_ipadapter(prompt, negative_prompt, ref_image2)
+    workflow = build_still_image_workflow_with_ipadapter(
+      prompt, negative_prompt, ref_image2,
+      lora_strength=lora_strength, cfg_scale=cfg_scale
+    )
     prompt_id = submit_prompt_to_comfyui(workflow)
   else:
     if use_ipadapter:
       logger.info(f'Scene {scene_idx}: 기본 워크플로우로 폴백 (IP-Adapter 미사용)')
-    workflow = build_still_image_workflow(prompt, negative_prompt)
+    workflow = build_still_image_workflow(
+      prompt, negative_prompt,
+      lora_strength=lora_strength, cfg_scale=cfg_scale
+    )
     prompt_id = submit_prompt_to_comfyui(workflow)
 
   if not poll_until_done(prompt_id):
@@ -483,12 +508,35 @@ def generate_all_images(
   use_cache: bool = True
 ) -> list[str]:
   """
-  Step 4: 모든 문장별 정지 이미지 생성
+  Step 4: 모든 문장별 정지 이미지 생성 (테마별 LoRA/CFG/색감 적용)
 
   반환: still_image_paths (문장 순서대로 정렬된 PNG 경로 리스트)
   """
   with open(schedule_path, 'r', encoding='utf-8') as f:
     schedule_data = json.load(f)
+
+  # 테마 파라미터 로드
+  theme_code = 'A'
+  nlp_path = Path(poem_dir) / 'step1_nlp.json'
+  if nlp_path.exists():
+    try:
+      with open(nlp_path, 'r', encoding='utf-8') as f:
+        nlp_data = json.load(f)
+      theme_code = nlp_data.get('theme', 'A')
+    except Exception:
+      pass
+
+  try:
+    from theme_config import get_image_params
+    theme_params = get_image_params(theme_code)
+  except Exception:
+    theme_params = {'lora': LORA_STRENGTH, 'cfg': STILL_IMAGE_CFG, 'color': '', 'neg_extra': ''}
+
+  theme_lora = theme_params.get('lora', LORA_STRENGTH)
+  theme_cfg = theme_params.get('cfg', STILL_IMAGE_CFG)
+  theme_color = theme_params.get('color', '')
+  theme_neg_extra = theme_params.get('neg_extra', '')
+  logger.info(f'테마={theme_code}: lora={theme_lora}, cfg={theme_cfg}, color={theme_color!r}')
 
   schedules = schedule_data.get('sentence_schedules', [])
   still_paths = []
@@ -507,8 +555,13 @@ def generate_all_images(
       still_paths.append(str(out_path))
       continue
 
-    prompt_text = sched['image_prompt']
-    neg_prompt = sched.get('negative_prompt', '')
+    # 테마 색감 키워드를 프롬프트에 추가
+    base_prompt = sched['image_prompt']
+    prompt_text = f'{base_prompt}, {theme_color}' if theme_color else base_prompt
+
+    # 테마 네거티브 키워드 추가
+    base_neg = sched.get('negative_prompt', '')
+    neg_prompt = f'{base_neg}, {theme_neg_extra}' if theme_neg_extra else base_neg
 
     logger.info(f'  - [{i+1}/{len(schedules)}] ComfyUI 호출 중: {out_name}')
 
@@ -516,7 +569,9 @@ def generate_all_images(
       result_file = run_comfyui_still_workflow(
         prompt=prompt_text,
         negative=neg_prompt,
-        output_name=out_name
+        output_name=out_name,
+        lora_strength=theme_lora,
+        cfg_scale=theme_cfg,
       )
 
       if result_file and os.path.exists(result_file):
