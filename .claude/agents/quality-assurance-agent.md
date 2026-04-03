@@ -38,9 +38,10 @@ memory: project
 ## 검수 워크플로우
 
 ### 단계 1: 입력 수집
-- 검수 대상 이미지 파일 경로/URL 수집
-- 해당 씬의 대본 텍스트 및 원본 프롬프트 확인
+- 검수 대상 정지이미지(PNG) 파일 경로 수집: `cache/{poem_id}/step4_scene{NN}_sent{MM}_still.png`
+- 해당 문장의 대본 텍스트 및 원본 프롬프트 확인 (`step1_nlp.json` + `step3_sentence_schedule.json`)
 - 캐릭터 설정 및 씬 메타데이터 참조
+- **참고:** Step 4는 씬(scene) 단위가 아닌 문장(sentence) 단위로 이미지를 생성합니다
 
 ### 단계 2: Vision LLM 분석
 - Vision LLM에 이미지와 함께 다음 질문을 구조화하여 전달:

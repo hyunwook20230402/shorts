@@ -1,3 +1,6 @@
 - **재시도 정책 (Retry Policy):** 외부 API(LLM, ComfyUI, Notion, TTS, YouTube) 호출 구간에는 반드시 '최대 3회 재시도 및 지수 백오프(Exponential Backoff)' 로직을 적용하여 파이프라인의 안정성을 확보하세요.
 - **로깅 (Logging):** 디버깅 목적으로 `print()` 함수 사용을 엄격히 금지합니다. 대신 파이썬 내장 `logging` 모듈을 사용하여 레벨별(INFO, WARNING, ERROR)로 기록하세요.
 - **상태 관리:** 에러 발생 시 진행 상황을 `task_status_dict['error_log']`에 즉시 업데이트하고, Notion DB(`task_status_log`)에 동기화해야 합니다.
+- **상태 업데이트 시점:** 각 Step의 시작(`running`), 완료(`completed`), 실패(`failed`) 3개 시점에서 반드시 `task.status` 명시적 설정
+- **ComfyUI 타임아웃:** `COMFYUI_MAX_WAIT` 초과 시 로그 기록 후 `cache/step4/` 부분 결과 보존 (전체 삭제 금지)
+- **edge-tts 에러:** 네트워크 에러 시 3회 재시도, 빈 응답 시 텍스트 유효성 재확인
