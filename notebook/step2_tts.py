@@ -220,21 +220,25 @@ def group_alignment_into_words(character_times: list[dict]) -> list[dict]:
 # =====================================================================
 
 
-async def call_edge_tts_api_async(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
-    """edge-tts로 TTS 생성 후 MP3 바이트 반환 (비동기 방식)"""
-    import tempfile
-    # Communicate 객체 생성
-    communicate = edge_tts.Communicate(text, voice)
-    
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-        tmp_path = tmp.name
-    
-    # 비동기로 파일 저장
-    await communicate.save(tmp_path)
-    
-    audio_bytes = Path(tmp_path).read_bytes()
-    Path(tmp_path).unlink()  # 임시 파일 삭제
-    return audio_bytes
+async def call_edge_tts_api_async(
+  text: str,
+  voice: str = EDGE_TTS_VOICE,
+  rate: str = '+0%',
+  pitch: str = '+0Hz',
+) -> bytes:
+  """edge-tts로 TTS 생성 후 MP3 바이트 반환 (비동기 방식)"""
+  import tempfile
+  # Communicate 객체 생성 (rate/pitch: 테마별 속도/음높이 조정)
+  communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+
+  with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+    tmp_path = tmp.name
+
+  await communicate.save(tmp_path)
+
+  audio_bytes = Path(tmp_path).read_bytes()
+  Path(tmp_path).unlink()
+  return audio_bytes
 
 
 def estimate_alignment_from_audio(
@@ -378,9 +382,11 @@ async def generate_sentence_audio(
   poem_dir: Path,
   voice: str = EDGE_TTS_VOICE,
   use_cache: bool = True,
+  rate: str = '+0%',
+  pitch: str = '+0Hz',
 ) -> tuple[Path, Path]:
   """
-  문장 단위 TTS 생성
+  문장 단위 TTS 생성 (테마별 rate/pitch 적용)
   반환: (mp3_path, alignment_path)
   """
   mp3_path = get_sentence_audio_path(poem_dir, scene_idx, sent_idx)
@@ -397,8 +403,8 @@ async def generate_sentence_audio(
     logger.warning(f'Scene {scene_idx} Sent {sent_idx}: 구두점 제거 후 텍스트 없음, 원본 사용')
     cleaned = sentence_text
 
-  logger.info(f'edge-tts 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx}')
-  audio_bytes = await call_edge_tts_api_async(cleaned, voice)
+  logger.info(f'edge-tts 문장 오디오 생성: Scene {scene_idx}, Sent {sent_idx} (rate={rate}, pitch={pitch})')
+  audio_bytes = await call_edge_tts_api_async(cleaned, voice, rate=rate, pitch=pitch)
 
   mp3_path.parent.mkdir(parents=True, exist_ok=True)
   mp3_path.write_bytes(audio_bytes)
@@ -428,8 +434,25 @@ async def generate_all_audio(
   use_cache: bool = True,
 ) -> tuple[list[list[str]], list[list[str]]]:
   """
-  모든 씬의 모든 문장에 대해 TTS 생성 (문장 단위)
+  모든 씬의 모든 문장에 대해 TTS 생성 (테마별 rate/pitch 적용)
   """
+  # 테마 기반 TTS 파라미터 로드
+  tts_rate = '+0%'
+  tts_pitch = '+0Hz'
+  nlp_path = Path(poem_dir) / 'step1_nlp.json'
+  if nlp_path.exists():
+    try:
+      with open(nlp_path, 'r', encoding='utf-8') as f:
+        nlp_data = json.load(f)
+      theme_code = nlp_data.get('theme', 'A')
+      from theme_config import get_tts_params
+      tts_params = get_tts_params(theme_code)
+      tts_rate = tts_params.get('rate', '+0%')
+      tts_pitch = tts_params.get('pitch', '+0Hz')
+      logger.info(f'테마={theme_code}: TTS rate={tts_rate}, pitch={tts_pitch}')
+    except Exception as e:
+      logger.warning(f'테마 TTS 파라미터 로드 실패 ({e}), 기본값 사용')
+
   sentence_audio_paths = []
   sentence_alignment_paths = []
 
@@ -451,13 +474,14 @@ async def generate_all_audio(
       continue
 
     scene_audios, scene_alignments = [], []
-    
-    # ✅ 체크 3: 이제 1개가 아닌, sentences 리스트의 개수만큼 루프를 돌며 생성
+
     for sent_idx, sentence_text in enumerate(sentences):
       try:
         mp3_path, align_path = await generate_sentence_audio(
           sentence_text, scene_idx, sent_idx, poem_dir,
-          use_cache=use_cache
+          use_cache=use_cache,
+          rate=tts_rate,
+          pitch=tts_pitch,
         )
         scene_audios.append(str(mp3_path))
         scene_alignments.append(str(align_path))
