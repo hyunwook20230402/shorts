@@ -14,7 +14,7 @@ class StepStatusEnum(str, Enum):
 class TaskStatus(BaseModel):
   """파이프라인 작업 상태"""
   task_id: str
-  current_step: int  # 0~5
+  current_step: int  # 0~6
   status: StepStatusEnum
   status_message: str
   error_log: dict[str, str]
@@ -41,6 +41,7 @@ class TaskStatus(BaseModel):
   still_image_paths: list[str] = []  # Step 4-A: ComfyUI 정지 이미지 PNG 경로 (문장 단위 flat)
   video_clip_paths: list[str] = []  # Step 4-B: Ken Burns MP4 클립 경로 (문장 단위 flat)
   subtitle_path: str | None = None  # v2에서 미사용 (타임스탬프 기반 교체)
+  bgm_path: str | None = None       # Step 5: BGM WAV 경로
   video_path: str | None = None
 
 
@@ -56,7 +57,7 @@ class PipelineRunRequest(BaseModel):
   """파이프라인 실행 요청"""
   task_id: str
   start_step: int = 0
-  end_step: int = 5
+  end_step: int = 6
 
 
 class StepRequest(BaseModel):

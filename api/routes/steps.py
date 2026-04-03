@@ -14,7 +14,8 @@ from api.pipeline_runner import (
   run_step2_audio,
   run_step3_schedule,
   run_step4_clips,
-  run_step5_merge,
+  run_step5_bgm,
+  run_step6_merge,
   task_status_dict,
 )
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _run_pipeline_sync(task_id: str, start_step: int = 0, end_step: int = 5):
+def _run_pipeline_sync(task_id: str, start_step: int = 0, end_step: int = 6):
   """파이프라인을 동기적으로 실행 (백그라운드 태스크용)"""
   try:
     asyncio.run(run_pipeline_async(task_id, start_step, end_step))
@@ -259,7 +260,33 @@ async def run_step4_endpoint(request: StepRequest) -> dict:
 
 @router.post('/steps/step5')
 async def run_step5_endpoint(request: StepRequest) -> dict:
-  """Step 5: Burn-in + 최종 병합 실행"""
+  """Step 5: BGM 생성"""
+  if request.task_id not in task_status_dict:
+    raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
+
+  task = task_status_dict[request.task_id]
+
+  if not task.still_image_paths:
+    raise HTTPException(
+      status_code=400,
+      detail='정지 이미지가 없습니다. Step 4를 먼저 실행하세요'
+    )
+
+  def _run_sync():
+    try:
+      asyncio.run(run_step5_bgm(request.task_id, request.use_cache))
+    except Exception as e:
+      logger.error(f'Step 5 오류: {e}')
+      task.status = StepStatusEnum.failed
+      task.status_message = str(e)
+
+  _executor.submit(_run_sync)
+  return {'task_id': request.task_id, 'status': 'running'}
+
+
+@router.post('/steps/step6')
+async def run_step6_endpoint(request: StepRequest) -> dict:
+  """Step 6: 자막 Burn-in + BGM 믹싱 + 최종 병합 실행"""
   if request.task_id not in task_status_dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
@@ -273,14 +300,14 @@ async def run_step5_endpoint(request: StepRequest) -> dict:
 
   def _run_sync():
     try:
-      asyncio.run(run_step5_merge(
+      asyncio.run(run_step6_merge(
         request.task_id,
         task.still_image_paths,
         task.audio_paths,
         task.sentence_schedule_path
       ))
     except Exception as e:
-      logger.error(f'Step 5 오류: {e}')
+      logger.error(f'Step 6 오류: {e}')
       task.status = StepStatusEnum.failed
       task.status_message = str(e)
 

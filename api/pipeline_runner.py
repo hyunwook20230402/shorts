@@ -12,7 +12,8 @@ from step1_nlp import process_nlp
 from step2_tts import generate_all_audio as elevenlabs_generate_all_v3
 from step3_scheduler import build_sentence_schedules
 from step4_image import generate_all_images
-from step5_video import compose_final_video
+from step5_bgm import run_step5 as generate_bgm
+from step6_video import compose_final_video
 
 from api.models import StepStatusEnum, TaskStatus
 from api.poem_registry import PoemRegistry
@@ -314,15 +315,46 @@ async def run_step4_clips(task_id: str, sentence_schedule_path: str, use_cache: 
     raise
 
 
-async def run_step5_merge(
+async def run_step5_bgm(task_id: str, use_cache: bool = True) -> str:
+  """Step 5: BGM 생성 → bgm_path (step5_bgm.wav)"""
+  task = task_status_dict[task_id]
+  task.current_step = 5
+  task.status = StepStatusEnum.running
+  task.status_message = 'BGM 생성 중...'
+  task.updated_at = datetime.now()
+  task_status_dict[task_id] = task
+
+  try:
+    poem_dir = _get_poem_dir(task)
+    bgm_path = generate_bgm(str(poem_dir), use_cache=use_cache)
+
+    task = task_status_dict[task_id]
+    task.bgm_path = bgm_path
+    task.status = StepStatusEnum.completed
+    task.status_message = 'BGM 생성 완료'
+    task.updated_at = datetime.now()
+    task_status_dict[task_id] = task
+    return bgm_path
+  except Exception as e:
+    logger.error(f'Step 5 오류: {e}')
+    task = task_status_dict[task_id]
+    task.error_log['step5'] = str(e)
+    task.status = StepStatusEnum.failed
+    task.status_message = f'Step 5 오류: {str(e)}'
+    task.updated_at = datetime.now()
+    task_status_dict[task_id] = task
+    raise
+
+
+async def run_step6_merge(
   task_id: str,
   still_image_paths: list[str],
   audio_paths: list[str],
   sentence_schedule_path: str
 ) -> str:
-  """Step 5: 문장 단위 이미지 병합 + 자막 → final video_path"""
+  """Step 6: 문장 단위 이미지 병합 + 자막 + BGM → final video_path"""
   task = task_status_dict[task_id]
-  task.current_step = 5
+  task.current_step = 6
   task.status = StepStatusEnum.running
   task.status_message = '최종 영상 병합 중...'
   task.updated_at = datetime.now()
@@ -346,17 +378,17 @@ async def run_step5_merge(
     task_status_dict[task_id] = task
     return video_path
   except Exception as e:
-    logger.error(f'Step 5 오류: {e}')
+    logger.error(f'Step 6 오류: {e}')
     task = task_status_dict[task_id]
-    task.error_log['step5'] = str(e)
+    task.error_log['step6'] = str(e)
     task.status = StepStatusEnum.failed
-    task.status_message = f'Step 5 오류: {str(e)}'
+    task.status_message = f'Step 6 오류: {str(e)}'
     task.updated_at = datetime.now()
     task_status_dict[task_id] = task
     raise
 
 
-async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 5):
+async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 6):
   """Step 0~5 순차 실행 (v2 파이프라인)"""
   task = task_status_dict[task_id]
   image_path = task.uploaded_image_path
@@ -395,14 +427,18 @@ async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 
     else:
       still_image_paths = task_status_dict[task_id].still_image_paths
 
-    # Step 5: 문장 단위 이미지 병합 + 자막
+    # Step 5: BGM 생성
     if start_step <= 5 <= end_step:
+      await run_step5_bgm(task_id)
+
+    # Step 6: 문장 단위 이미지 병합 + 자막 + BGM
+    if start_step <= 6 <= end_step:
       audio_flat = task_status_dict[task_id].audio_paths  # flat list
-      await run_step5_merge(task_id, still_image_paths, audio_flat, sentence_schedule_path)
+      await run_step6_merge(task_id, still_image_paths, audio_flat, sentence_schedule_path)
 
     # 완료
     task = task_status_dict[task_id]
-    task.current_step = 5
+    task.current_step = 6
     task.status = StepStatusEnum.completed
     task.status_message = '파이프라인 완료!'
     task.updated_at = datetime.now()
