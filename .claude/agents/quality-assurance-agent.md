@@ -38,8 +38,8 @@ memory: project
 ## 검수 워크플로우
 
 ### 단계 1: 입력 수집
-- 검수 대상 정지이미지(PNG) 파일 경로 수집: `cache/{poem_id}/step4_scene{NN}_sent{MM}_still.png`
-- 해당 문장의 대본 텍스트 및 원본 프롬프트 확인 (`step1_nlp.json` + `step3_sentence_schedule.json`)
+- 검수 대상 정지이미지(PNG) 파일 경로 수집: `{poem_dir}/step4/scene{NN}_sent{MM}_still.png`
+- 해당 문장의 대본 텍스트 및 원본 프롬프트 확인 (`step1/nlp.json` + `step3/sentence_schedule.json`)
 - 캐릭터 설정 및 씬 메타데이터 참조
 - **참고:** Step 4는 씬(scene) 단위가 아닌 문장(sentence) 단위로 이미지를 생성합니다
 

@@ -63,9 +63,9 @@ For artistic styles, add as appropriate:
 ## 출력 파일 경로 (IMPORTANT)
 
 - 프롬프트 결과는 콘솔 출력으로만 제공 (파일 저장 없음)
-- Step 3(`step3_scheduler.py`)가 이 출력을 `image_prompt` 필드로 수신하여 Step 4 SD 1.5 정지이미지 생성에 전달함
+- Step 3(`step3_scheduler.py`)가 이 출력을 `image_prompt` 필드로 수신하여 Step 4 정지이미지 생성에 전달함
 - Step 4(`step4_image.py`)는 ComfyUI SD 1.5 + 국풍 LoRA + IP-Adapter로 문장별 정지이미지(PNG)를 생성
-- 캐시 경로: `cache/{poem_id}/step4_scene{NN}_sent{MM}_still.png`
+- 캐시 경로: `{poem_dir}/step4/scene{NN}_sent{MM}_still.png`
 - 임시 `.py`, `.txt`, `.md` 파일 생성 금지 — 루트 디렉터리 오염 방지
 - 메모리 저장 필요 시: `C:\Users\user\workspaces\shorts\.claude\agent-memory\art-director-agent\`
 

@@ -27,11 +27,12 @@ description: "환경변수 설정을 검증합니다. .env 파일의 필수 키 
 | `STILL_IMAGE_CFG` | CFG 스케일 | ⚠️ 기본값 |
 | `COMFYUI_OUTPUT_DIR` | ComfyUI 출력 경로 | ✅ |
 | `COMFYUI_MAX_WAIT` | 최대 대기 시간(초) | ⚠️ 기본값 1200 |
-| `SUBTITLE_FONT_PATH` | 자막 폰트 경로 | ✅ |
+| `SUBTITLE_FONT_PATH` | 자막 폰트 경로 (NanumSquare.ttf) | ✅ |
+| `STABLE_AUDIO_MODEL` | Stable Audio 모델 경로 | ⚠️ 기본값 |
 
 3. **플레이스홀더 감지**: `your_key`, `your_`, `xxx`, `TODO`, 빈 값(`=""`) 패턴 검색
 
-4. **폰트 파일 존재 확인**: `SUBTITLE_FONT_PATH` 경로에 실제 파일이 있는지 확인
+4. **폰트 파일 존재 확인**: `SUBTITLE_FONT_PATH` 경로에 NanumSquare.ttf 파일이 있는지 확인
 
 5. **패키지 설치 확인**: `uv pip list` 또는 `.venv` 존재 확인
 
@@ -41,7 +42,7 @@ description: "환경변수 설정을 검증합니다. .env 파일의 필수 키 
 환경 설정 검증 결과:
 ✅ 필수 키 12/12 설정됨
 ⚠️ NOTION_API_KEY — 미설정 (Notion 동기화 비활성)
-✅ 폰트 파일 존재: C:/Windows/Fonts/malgun.ttf
+✅ 폰트 파일 존재: %LOCALAPPDATA%/Microsoft/Windows/Fonts/NanumSquare.ttf
 ✅ .venv 존재, 패키지 설치 완료
 ```
 

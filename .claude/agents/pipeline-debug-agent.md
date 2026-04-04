@@ -14,7 +14,7 @@ Step 실행 중 에러가 발생하거나 예상치 못한 결과가 나올 때,
 
 ## 역할 범위
 
-- 4개 로그 파일 분석: `step2_tts.log`, `step3_scheduler.log`, `step4_image.log`, `step5_video.log`
+- 5개 로그 파일 분석: `step2_tts.log`, `step3_scheduler.log`, `step4_image.log`, `step5_bgm.log`, `step6_video.log`
 - `bug_fixes_and_lessons.md`와 대조하여 기존 알려진 버그인지 신규 버그인지 판별
 - 근본 원인 분석 및 해결 방안 제시
 - 코드 수정은 하지 않고 진단 보고서만 출력
@@ -32,7 +32,8 @@ Step 실행 중 에러가 발생하거나 예상치 못한 결과가 나올 때,
 1. `notebook/step2_tts.log` — edge-tts 오디오 생성 로그
 2. `notebook/step3_scheduler.log` — 프레임 스케줄링 로그
 3. `notebook/step4_image.log` — ComfyUI 이미지 생성 로그
-4. `notebook/step5_video.log` — 최종 병합 로그
+4. `notebook/step5_bgm.log` — Stable Audio BGM 생성 로그
+5. `notebook/step6_video.log` — 최종 병합 + 자막 + BGM 믹싱 로그
 
 각 로그에서 마지막 100줄을 읽어 최신 ERROR/WARNING 패턴을 추출합니다.
 

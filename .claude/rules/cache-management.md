@@ -13,15 +13,22 @@
 
 ```
 {poem_dir}/
-├── step0_ocr.txt
-├── step1_nlp.json               ← theme, theme_en 필드 포함
-├── step1_context.txt
-├── step2_scene{NN}_sent{MM}_audio.mp3
-├── step2_scene{NN}_sent{MM}_alignment.json
-├── step3_sentence_schedule.json
-├── step4_scene{NN}_sent{MM}_still.png
-├── step5_bgm.wav                ← Stable Audio 생성 BGM
-└── step6_shorts.mp4             ← 최종 영상 (BGM 믹싱 포함)
+├── step0/
+│   └── ocr.txt
+├── step1/
+│   ├── nlp.json                 ← primary/surface_theme, dominant_emotion 필드 포함
+│   └── context.txt
+├── step2/
+│   ├── scene{NN}_sent{MM}_audio.mp3
+│   └── scene{NN}_sent{MM}_alignment.json
+├── step3/
+│   └── sentence_schedule.json
+├── step4/
+│   └── scene{NN}_sent{MM}_still.png
+├── step5/
+│   └── bgm.wav                  ← Stable Audio 생성 BGM (테마/정서 기반)
+└── step6/
+    └── shorts.mp4               ← 최종 영상 (NanumSquare 자막 + BGM 믹싱)
 ```
 
 **UI 전용 파일:**

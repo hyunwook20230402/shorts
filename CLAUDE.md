@@ -6,34 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 고전시가 원문 이미지 → 수묵화 스타일 정지이미지 슬라이드쇼 쇼츠 자동 생성 파이프라인 **(v2 — Dynamic Clip Generator)**.
 
-**현재 상태:** Step 0~6 전체 구현 완료 (edge-tts + SD 1.5 정지이미지 + PIL 자막 + Stable Audio BGM + 13개 테마 시스템).
+**현재 상태:** Step 0~6 전체 구현 완료 (edge-tts + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable Audio BGM + 13개 이중 테마 시스템 + 지배적 정서).
 
 ## 기술 스택 (v2)
 
 - **프론트엔드:** Streamlit (`app_ui.py`, 포트 8501)
 - **백엔드:** FastAPI (`main_api.py`, 포트 8000)
-- **LLM:** HCX-005 (OCR + 번역), gpt-4o-mini (시각 프롬프트)
+- **LLM:** HCX-005 (OCR + 번역 + 테마/정서 분류 + 이미지 프롬프트), gpt-4o-mini (BGM 프롬프트)
 - **음성:** edge-tts (한국어, 무료 — `ko-KR-SunHiNeural`)
 - **이미지:** ComfyUI SD 1.5 정지이미지 (국풍 LoRA + IP-Adapter)
-- **자막:** PIL Image 기반 자막 이미지 → MoviePy ImageClip Burn-in
-- **최종 합성:** MoviePy + FFmpeg (이미지+오디오 슬라이드쇼)
+- **자막:** PIL Image 기반 자막 이미지 (NanumSquare EB + 흰색 + 검은 외곽선) → MoviePy ImageClip Burn-in
+- **BGM:** Stable Audio (`stabilityai/stable-audio-open-1.0`) — 테마/정서 기반 LLM 프롬프트 생성
+- **최종 합성:** MoviePy + FFmpeg (이미지+오디오+자막+BGM 슬라이드쇼)
 - **데이터:** Notion API (원문-번역 로깅)
 - **패키지:** Python 3.12, uv
 
-## 파이프라인 (v2 + 테마 시스템)
+## 파이프라인 (v2 + 이중 테마 + 지배적 정서)
 
 ```
 Step 0: OCR             HCX-005로 이미지 → 텍스트 추출
-Step 1: NLP             번역 + 씬 분할 + 13개 테마 분류 (원문, 현대어, 나레이션, 감정, 배경, theme)
-Step 2: 음성+타임스탬프  edge-tts로 MP3 + alignment(추정 타임스탬프) JSON
+Step 1: NLP             번역 + 씬 분할 + 이중 테마 분류(primary/surface) + 지배적 정서(dominant_emotion)
+Step 2: 음성+타임스탬프  edge-tts로 문장별 MP3 + alignment(추정 타임스탬프) JSON
 Step 3: 프레임 스케줄    문장 단위 스케줄 JSON (duration, image_prompt, audio_path)
-Step 4: 정지이미지       ComfyUI SD1.5 (국풍 LoRA + IP-Adapter)로 문장별 PNG 생성
-Step 5: BGM 생성         Stable Audio → 테마별 악기/분위기 기반 step5_bgm.wav
+Step 4: 정지이미지       ComfyUI SD 1.5 (국풍 LoRA + IP-Adapter)로 문장별 PNG 생성
+Step 5: BGM 생성         Stable Audio → 테마별 악기/분위기 + 지배적 정서 기반 BGM WAV
 Step 6: 최종 병합        이미지+오디오+자막+BGM 슬라이드쇼 (1080×1920, 30fps)
 ```
 
-**테마 시스템:** 13개 고전시가 테마 (강호자연~건국송축), Step 1에서 분류 후 Step 2~6 전체 반영.
-`notebook/theme_config.py`가 단일 소스 역할.
+**이중 테마 시스템:** 13개 고전시가 테마 (강호자연~건국송축).
+- `primary_theme`: 작품의 근본 주제 (시상/메시지)
+- `surface_theme`: 시각적으로 드러나는 배경/소재 (이미지 프롬프트에 사용)
+- `dominant_emotion`: 지배적 정서 코드 (E1~E7, BGM/이미지 분위기에 반영)
+
+Step 1에서 분류 후 Step 2~6 전체 반영. `notebook/theme_config.py`가 단일 소스 역할.
 
 ## 캐시 구조 (이원화)
 
@@ -60,11 +65,17 @@ Step 6: 최종 병합        이미지+오디오+자막+BGM 슬라이드쇼 (108
   - `still_image_paths: list[str]` — Step 4 정지이미지 PNG 경로 (flat)
   - `bgm_path: str | None` — Step 5 BGM WAV 경로
 
+**NLP 출력 (`step1/nlp.json`) 주요 필드:**
+- `primary_theme` / `primary_theme_en` — 근본 주제 테마
+- `surface_theme` / `surface_theme_en` — 시각적 배경 테마
+- `dominant_emotion` / `dominant_emotion_en` — 지배적 정서 (E1~E7)
+- `modern_script_data` — 씬별 데이터 배열
+
 **환경변수 (`.env`):**
 ```
 # API 키
 NCP_CLOVA_API_KEY         # HCX-005 OCR/번역
-OPENAI_API_KEY            # gpt-4o-mini 프롬프트
+OPENAI_API_KEY            # gpt-4o-mini BGM 프롬프트
 NOTION_API_KEY            # Notion DB 연동 (선택)
 
 # TTS
@@ -88,25 +99,28 @@ CLIP_VISION_MODEL=clip_vision_h14.safetensors
 REFERENCE_IMAGE_PATH=notebook/cache/reference/character.png
 REFERENCE_IMAGE_PATH2=     # 두 번째 참조 이미지 (선택)
 
+# Stable Audio BGM
+STABLE_AUDIO_MODEL=stabilityai/stable-audio-open-1.0
+
 # 자막
-SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
+SUBTITLE_FONT_PATH=%LOCALAPPDATA%/Microsoft/Windows/Fonts/NanumSquare.ttf
 ```
 
 ## Step 주요 결정사항
 
-**Step 0 (OCR):** HCX-005, 캐시 `{poem_dir}/step0_ocr.txt`
+**Step 0 (OCR):** HCX-005, 캐시 `{poem_dir}/step0/ocr.txt`
 
-**Step 1 (NLP):** HCX-005 번역 + gpt-4o-mini 이미지 프롬프트, 캐시 `{poem_dir}/step1_nlp.json`
+**Step 1 (NLP):** HCX-005 번역 + 이중 테마/정서 분류 + HCX-005 이미지 프롬프트, 캐시 `{poem_dir}/step1/nlp.json`
 
-**Step 2 (edge-tts):** 문장 단위 MP3 + alignment JSON, 캐시 `{poem_dir}/step2_scene{NN}_sent{MM}_audio.mp3|_alignment.json`
+**Step 2 (edge-tts):** 문장 단위 MP3 + alignment JSON, 캐시 `{poem_dir}/step2/scene{NN}_sent{MM}_audio.mp3|_alignment.json`
 
-**Step 3 (문장 스케줄링):** 문장 단위 duration/prompt/audio_path 매핑, 캐시 `{poem_dir}/step3_sentence_schedule.json`
+**Step 3 (문장 스케줄링):** 문장 단위 duration/prompt/audio_path 매핑, 캐시 `{poem_dir}/step3/sentence_schedule.json`
 
-**Step 4 (SD 1.5 정지이미지):** 국풍 LoRA + IP-Adapter, 캐시 `{poem_dir}/step4_scene{NN}_sent{MM}_still.png`
+**Step 4 (SD 1.5 정지이미지):** 국풍 LoRA + IP-Adapter, 캐시 `{poem_dir}/step4/scene{NN}_sent{MM}_still.png`
 
-**Step 5 (BGM):** Stable Audio 기반 BGM 생성, 테마별 악기/분위기 LLM 프롬프트 주입, 캐시 `{poem_dir}/step5_bgm.wav`
+**Step 5 (BGM):** Stable Audio 기반 BGM 생성, 테마별 악기/분위기 + 지배적 정서 LLM 프롬프트 주입, 캐시 `{poem_dir}/step5/bgm.wav`
 
-**Step 6 (병합):** 이미지+오디오 슬라이드쇼 + 테마별 PIL 자막 burn-in + BGM 믹싱, 캐시 `{poem_dir}/step6_shorts.mp4`
+**Step 6 (병합):** 이미지+오디오 슬라이드쇼 + NanumSquare 자막 burn-in (흰색+검은 외곽선, 65% 위치, 어절 단위 줄바꿈) + BGM 믹싱, 캐시 `{poem_dir}/step6/shorts.mp4`
 
 **백엔드 (API):** FastAPI ThreadPoolExecutor(max_workers=2), Streamlit `@st.fragment(run_every=2)` 폴링
 
@@ -121,6 +135,8 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 | Step 2 (TTS) 완료 | `audio-visual-qa-agent` | 오디오-타임스탬프 타이밍 검증 |
 | Step 3 (스케줄) 생성 완료 | `art-director-agent` | 정지이미지 프롬프트 최적화 |
 | Step 4 (정지이미지) 생성 완료 | `quality-assurance-agent` | 이미지-대본 정합성 검증 |
+| Step 5 (BGM) 생성 완료 | `bgm-verification-agent` | BGM 품질/길이/테마 검증 |
+| Step 6 (최종 영상) 생성 완료 | `video-verification-agent` | 영상 스펙/오디오/자막 검증 |
 | Step 6 (최종 영상) 생성 완료 | `seo-metadata-agent` | 메타데이터/제목/설명/해시태그 |
 | Step 실행 에러 발생 | `pipeline-debug-agent` | 로그 분석 + 근본 원인 진단 |
 
@@ -138,13 +154,13 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 
 ### Step 모듈 (`notebook/`)
 - `step0_ocr.py` — Step 0 HCX-005 OCR
-- `step1_nlp.py` — Step 1 번역 + 씬 분할 + 이미지 프롬프트
+- `step1_nlp.py` — Step 1 번역 + 씬 분할 + 이중 테마/정서 분류 + 이미지 프롬프트
 - `step2_tts.py` — Step 2 edge-tts MP3 + alignment JSON
 - `step3_scheduler.py` — Step 3 문장 단위 스케줄링
 - `step4_image.py` — Step 4 ComfyUI SD 1.5 정지이미지 생성
-- `step5_bgm.py` — Step 5 Stable Audio BGM 생성 (순수 WAV)
+- `step5_bgm.py` — Step 5 Stable Audio BGM 생성 (테마/정서 기반 WAV)
 - `step6_video.py` — Step 6 이미지+오디오+자막+BGM 최종 병합
-- `theme_config.py` — 13개 테마 설정 단일 소스
+- `theme_config.py` — 13개 테마 + 7개 정서 설정 단일 소스
 
 ### API (`api/`)
 - `pipeline_runner.py` — 파이프라인 오케스트레이션 엔진
@@ -170,4 +186,4 @@ SUBTITLE_FONT_PATH=C:/Windows/Fonts/malgun.ttf
 
 ---
 
-**마지막 업데이트:** 2026-04-04 (테마 시스템 + Step 재배치: BGM=Step5, 영상병합=Step6)
+**마지막 업데이트:** 2026-04-04 (이중 테마/정서 시스템 + Step 5 BGM + Step 6 영상병합 + NanumSquare 자막)

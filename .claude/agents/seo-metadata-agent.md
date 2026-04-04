@@ -117,7 +117,7 @@ memory: project
 
 ## 출력 파일 경로 (IMPORTANT)
 
-- 메타데이터 결과: `cache/step5/{hash8}_seo_metadata.json` 에 저장
+- 메타데이터 결과: `{poem_dir}/step6/seo_metadata.json` 에 저장
   ```json
   {
     "title_candidates": ["제목1", "제목2", "제목3"],
@@ -127,7 +127,7 @@ memory: project
     "target_keywords": ["키워드1", "키워드2"]
   }
   ```
-- hash8: Step 5 영상 파일명에서 추출 (예: `ee4b43bf_shorts.mp4` → `ee4b43bf`)
+- Step 6 최종 영상(`step6/shorts.mp4`) 완성 후 호출
 - 임시 `.py`, `.txt` 파일 생성 금지 — 루트 디렉터리 오염 방지
 - 메모리 저장 필요 시: `C:\Users\user\workspaces\shorts\.claude\agent-memory\seo-metadata-agent\`
 

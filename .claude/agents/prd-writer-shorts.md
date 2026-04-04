@@ -16,20 +16,22 @@ memory: project
 - 프론트엔드: Streamlit
 - 백엔드: FastAPI (오케스트레이터)
 - 데이터베이스: Notion API (Notion Database)
-- Vision/Text LLM: HCX-005 (CLOVA Studio, Step 0-1) / gpt-4o-mini (시각 프롬프트)
-- 음성: ElevenLabs API (타임스탬프 alignment 포함)
-- 영상: ComfyUI AnimateDiff (SD 1.5 + 국풍 LoRA)
-- 자막: MoviePy TextClip (타임스탬프 기반 Burn-in)
+- Vision/Text LLM: HCX-005 (CLOVA Studio, Step 0-1 OCR/번역/테마/프롬프트) / gpt-4o-mini (BGM 프롬프트)
+- 음성: edge-tts (한국어, 무료 — ko-KR-SunHiNeural)
+- 이미지: ComfyUI SD 1.5 정지이미지 (국풍 LoRA + IP-Adapter)
+- BGM: Stable Audio (stabilityai/stable-audio-open-1.0)
+- 자막: PIL Image 기반 (NanumSquare EB + 흰색 + 검은 외곽선, Burn-in)
 - 최종 합성: MoviePy + FFmpeg
 - 언어: Python 3.12
 
 **파이프라인 단계:**
 - Step 0: OCR (HCX-005로 이미지 → 텍스트 추출)
-- Step 1: NLP (번역 + 씬 분할, 원문/현대어/나레이션/감정/배경 + DB 로깅)
-- Step 2: 음성+타임스탬프 (ElevenLabs로 MP3 + alignment JSON 생성)
-- Step 3: 프레임 스케줄 (alignment × FPS → AnimateDiff BatchPromptSchedule JSON)
-- Step 4: 영상 클립 (ComfyUI AnimateDiff SD1.5+국풍LoRA로 씬별 무성 MP4 생성)
-- Step 5: 최종 병합 (클립 연결 + 타임스탬프 기반 자막 Burn-in + MP3 싱크)
+- Step 1: NLP (번역 + 씬 분할 + 이중 테마/정서 분류 + 이미지 프롬프트 + DB 로깅)
+- Step 2: 음성+타임스탬프 (edge-tts로 문장별 MP3 + alignment JSON 생성)
+- Step 3: 문장 스케줄링 (문장 단위 duration/image_prompt/audio_path 매핑)
+- Step 4: 정지이미지 (ComfyUI SD 1.5 + 국풍 LoRA + IP-Adapter로 문장별 PNG)
+- Step 5: BGM 생성 (Stable Audio → 테마/정서 기반 배경음악 WAV)
+- Step 6: 최종 병합 (이미지+오디오+자막+BGM 슬라이드쇼, 1080×1920, 30fps)
 
 **상태 관리 객체 (`task_status_dict`):**
 파이프라인 전체에서 작업 상태를 추적하는 핵심 객체로, 다음 필드를 포함합니다:
