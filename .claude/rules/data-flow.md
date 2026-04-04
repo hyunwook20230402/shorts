@@ -33,9 +33,11 @@ nlp.json
 | `scene_description` | 번역 LLM | — | — | image_prompt 재료 (장면 묘사) | — | — |
 | `image_prompt` | 이미지 LLM | — | **스케줄 저장** | **ComfyUI 프롬프트** | — | — |
 | `pose_type` | 이미지 LLM | — | **스케줄 저장** | **ControlNet 스켈레톤** | — | — |
-| `primary_theme` | 테마 LLM | **TTS 속도/피치** | — | — | **BGM 악기/분위기** | **TTS:BGM 볼륨비** |
+| `primary_theme` | 테마 LLM | **TTS 속도/피치** | — | — | **BGM 악기/분위기/템포** | **TTS:BGM 볼륨비** |
 | `surface_theme` | 테마 LLM | — | — | **LoRA강도/CFG + 색감 키워드** | — | **자막 색상/크기** |
 | `dominant_emotion` | 테마 LLM | — | — | emotion_tone → image_prompt 재료 | **정서 힌트 → GPT BGM 프롬프트** | — |
+| `theme_reasoning` | 테마 LLM | — | — | — | **테마 판단 근거 → GPT BGM 프롬프트** | — |
+| `emotion_reasoning` | 테마 LLM | — | — | — | **정서 판단 근거 → GPT BGM 프롬프트** | — |
 
 ---
 
@@ -57,8 +59,12 @@ Step 4 (이미지)
   surface_theme        → LoRA 강도/CFG 스케일 + 색감 키워드 append (nlp.json 직접 읽음)
 
 Step 5 (BGM)
-  primary_theme        → 악기/분위기 힌트
-  dominant_emotion     → 정서 힌트 → GPT BGM 프롬프트 생성
+  primary_theme        → 악기/분위기/템포 힌트 → GPT BGM 프롬프트
+  dominant_emotion     → 정서 힌트 → GPT BGM 프롬프트
+  theme_reasoning      → 테마 판단 근거 (작품별 해석) → GPT BGM 프롬프트
+  emotion_reasoning    → 정서 판단 근거 (감정 해석) → GPT BGM 프롬프트
+  scene_description    → 장면 묘사 → GPT BGM 프롬프트
+  modern_text          → 현대어 번역 → GPT BGM 프롬프트
 
 Step 6 (영상)
   modern_text          → 자막 burn-in 텍스트
