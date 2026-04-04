@@ -237,18 +237,18 @@ def add_subtitles_to_video(
   return CompositeVideoClip([video_clip] + subtitle_clips, size=video_clip.size)
 
 
-def mix_bgm_into_video(video_clip, bgm_path: str, narration_vol: float, bgm_vol: float):
+def mix_bgm_into_video(video_clip, bgm_path: str, tts_vol: float, bgm_vol: float):
   """
-  video_clip의 나레이션 오디오 + step5_bgm.wav 믹싱.
-  narration_vol / bgm_vol 은 theme_config에서 조회한 볼륨 값.
+  video_clip의 TTS 오디오 + step5_bgm.wav 믹싱.
+  tts_vol / bgm_vol 은 theme_config에서 조회한 볼륨 값.
   """
   import numpy as np
   import soundfile as sf
 
-  logger.info(f'BGM 믹싱: {bgm_path} (나레이션={narration_vol}, BGM={bgm_vol})')
+  logger.info(f'BGM 믹싱: {bgm_path} (TTS={tts_vol}, BGM={bgm_vol})')
 
-  # 나레이션 볼륨 조정
-  narration_audio = video_clip.audio.volumex(narration_vol)
+  # TTS 볼륨 조정
+  tts_audio = video_clip.audio.volumex(tts_vol)
   video_duration = video_clip.duration
 
   # BGM 로드
@@ -275,7 +275,7 @@ def mix_bgm_into_video(video_clip, bgm_path: str, narration_vol: float, bgm_vol:
     bgm_clip = AudioFileClip(tmp_path).subclip(0, video_duration)
     bgm_clip = bgm_clip.volumex(bgm_vol)
 
-    mixed = CompositeAudioClip([narration_audio, bgm_clip])
+    mixed = CompositeAudioClip([tts_audio, bgm_clip])
     logger.info(f'BGM 믹싱 완료: {mixed.duration:.2f}초')
     return video_clip.set_audio(mixed), tmp_path
 
@@ -373,7 +373,7 @@ def compose_final_video(
     bgm_volume = get_bgm_volume(primary_theme)           # 볼륨: 감정 진심 테마
   except Exception:
     subtitle_style = {'color': (0, 0, 0), 'size': 48, 'opacity': 1.0}
-    bgm_volume = {'narration': 0.9, 'bgm': 0.25}
+    bgm_volume = {'tts': 0.9, 'bgm': 0.25}
 
   logger.info(
     f'primary_theme={primary_theme}, surface_theme={surface_theme}, '
@@ -417,7 +417,7 @@ def compose_final_video(
         video, tmp_bgm_path = mix_bgm_into_video(
           video,
           str(bgm_path),
-          narration_vol=bgm_volume['narration'],
+          tts_vol=bgm_volume['tts'],
           bgm_vol=bgm_volume['bgm'],
         )
         logger.info('BGM 믹싱 완료')

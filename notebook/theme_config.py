@@ -175,19 +175,19 @@ def get_theme_classification_prompt() -> str:
 # ─── Step 1: 테마별 이미지 프롬프트 스타일 가이드 ───
 
 THEME_IMAGE_STYLE_GUIDE: dict[str, str] = {
-  "A": "emphasize shanshui landscape composition, cool blue-green palette, wide establishing shots, misty mountains, serene water",
-  "B": "muted palace tones, moonlit haze, solitary figure gazing at distant palace, melancholic atmosphere",
-  "C": "dramatic low-angle composition, dark ominous sky, heroic figure stance, blood-red accents, martial energy",
-  "D": "cold desolate landscape, barren trees, isolated figure, gray-blue palette, prison or remote wilderness",
-  "E": "warm soft-focus lighting, intimate two-figure composition, cherry blossoms or moonlight, romantic atmosphere",
-  "F": "cool blue-gray tones, fading light, parting scene, river or road stretching into distance, bittersweet mood",
-  "G": "neutral scholarly tones, clean structured composition, study room or lecture hall, dignified atmosphere",
-  "H": "vivid saturated folk colors, exaggerated expressions, marketplace or village scene, comedic energy",
-  "I": "desaturated earthy palette, falling petals or leaves, dissolving edges, vanitas symbolism, weary figure",
-  "J": "golden temple light, incense haze, Buddhist imagery, lotus flowers, sacred meditative atmosphere",
-  "K": "scenic panoramic vista, clear sky, traveler on mountain path, adventurous dynamic composition",
-  "L": "warm earthy harvest tones, communal farming scene, rhythmic movement, folk festival atmosphere",
-  "M": "majestic gold and red, royal court setting, celebratory procession, grand scale composition",
+  "A": "cool blue-green palette, misty soft atmosphere, sage and teal hues",
+  "B": "muted blue-gray tones, pale moonlit haze, cold desaturated lighting",
+  "C": "dark ominous sky, deep crimson accent tones, high-contrast dramatic lighting",
+  "D": "cold desolate gray-blue palette, stark overcast lighting, bleak washed-out tones",
+  "E": "warm soft-focus lighting, warm rose and amber tones, gentle diffused glow",
+  "F": "cool blue-gray tones, fading dusk light, desaturated melancholic palette",
+  "G": "neutral muted tones, clean even lighting, composed understated palette",
+  "H": "vivid saturated folk colors, bright warm lighting, high chroma palette",
+  "I": "desaturated earthy palette, dim autumn light, muted brown and ochre tones",
+  "J": "warm golden light, soft incense haze, amber and ivory glow",
+  "K": "clear bright natural light, vivid scenic colors, crisp high-contrast daylight",
+  "L": "warm earthy harvest tones, golden afternoon light, amber and sienna palette",
+  "M": "majestic gold and deep red tones, warm ceremonial lighting, rich saturated palette",
 }
 
 
@@ -285,16 +285,16 @@ THEME_SUBTITLE_STYLE: dict[str, dict] = {
 DEFAULT_SUBTITLE_STYLE = _SHORTS_SUB.copy()
 
 THEME_BGM_VOLUME: dict[str, dict[str, float]] = {
-  "A": {"narration": 0.8, "bgm": 0.4},    # BGM 높게 (자연 분위기)
-  "B": {"narration": 0.9, "bgm": 0.3},    # 균형
-  "C": {"narration": 1.0, "bgm": 0.2},    # 나레이션 우선
-  "D": {"narration": 0.85, "bgm": 0.35},  # 약간 BGM
-  "E": {"narration": 0.9, "bgm": 0.35},   # 로맨틱 분위기
-  "H": {"narration": 1.0, "bgm": 0.15},   # 나레이션 최우선 (해학)
-  "I": {"narration": 0.7, "bgm": 0.45},   # BGM 우세 (몽환)
-  "J": {"narration": 0.8, "bgm": 0.4},    # 경건한 BGM
+  "A": {"tts": 0.8, "bgm": 0.4},    # BGM 높게 (자연 분위기)
+  "B": {"tts": 0.9, "bgm": 0.3},    # 균형
+  "C": {"tts": 1.0, "bgm": 0.2},    # TTS 우선
+  "D": {"tts": 0.85, "bgm": 0.35},  # 약간 BGM
+  "E": {"tts": 0.9, "bgm": 0.35},   # 로맨틱 분위기
+  "H": {"tts": 1.0, "bgm": 0.15},   # TTS 최우선 (해학)
+  "I": {"tts": 0.7, "bgm": 0.45},   # BGM 우세 (몽환)
+  "J": {"tts": 0.8, "bgm": 0.4},    # 경건한 BGM
 }
-DEFAULT_BGM_VOLUME = {"narration": 0.9, "bgm": 0.25}
+DEFAULT_BGM_VOLUME = {"tts": 0.9, "bgm": 0.25}
 
 
 # ─── 헬퍼 함수 ───
@@ -350,5 +350,5 @@ def get_subtitle_style(theme_code: str) -> dict:
 
 
 def get_bgm_volume(theme_code: str) -> dict[str, float]:
-  """테마 코드 → 나레이션/BGM 볼륨"""
+  """테마 코드 → TTS/BGM 볼륨"""
   return THEME_BGM_VOLUME.get(theme_code, DEFAULT_BGM_VOLUME)

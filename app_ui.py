@@ -53,17 +53,18 @@ def fetch_task_status(task_id: str) -> dict | None:
   return None
 
 
-def upload_image(file) -> str | None:
-  """이미지 업로드"""
+def upload_images(files: list) -> str | None:
+  """이미지 N장 업로드 (순서 중요)"""
   try:
-    # Streamlit UploadedFile에서 바이너리 읽기
-    file_content = file.read()
-    files = {'file': (file.name, file_content, 'image/jpeg')}
-
+    # multipart/form-data로 여러 파일 전송
+    multipart_files = [
+      ('files', (f.name, f.read(), 'image/jpeg'))
+      for f in files
+    ]
     resp = requests.post(
       f'{st.session_state.api_base}/upload',
-      files=files,
-      timeout=30
+      files=multipart_files,
+      timeout=60
     )
     if resp.status_code == 200:
       data = resp.json()
@@ -144,19 +145,21 @@ with st.sidebar:
   st.divider()
 
   st.title('📤 이미지 업로드')
-  uploaded_file = st.file_uploader(
-    '고전시가 이미지 선택',
+  uploaded_files = st.file_uploader(
+    '고전시가 이미지 선택 (여러 장 가능 — 순서대로 업로드)',
     type=['png', 'jpg', 'jpeg'],
-    help='OCR로 인식할 고전시가 이미지'
+    accept_multiple_files=True,
+    help='긴 작품은 여러 페이지 이미지를 순서대로 선택하세요. OCR 후 자동으로 이어붙입니다.'
   )
 
-  if uploaded_file:
+  if uploaded_files:
+    st.caption(f'{len(uploaded_files)}장 선택됨')
     if st.button('✅ 업로드', use_container_width=True):
-      with st.spinner('업로드 중...'):
-        task_id = upload_image(uploaded_file)
+      with st.spinner(f'{len(uploaded_files)}장 업로드 중...'):
+        task_id = upload_images(uploaded_files)
         if task_id:
           st.session_state.task_id = task_id
-          st.success(f'✅ 업로드 완료!\nTask ID: {task_id[:8]}...')
+          st.success(f'✅ 업로드 완료! ({len(uploaded_files)}장)\nTask ID: {task_id[:8]}...')
         else:
           st.error('업로드 실패')
 
@@ -277,15 +280,24 @@ else:
               nlp_data = json.load(f)
 
             scenes = nlp_data.get('modern_script_data', [])
-            theme = nlp_data.get('theme', '')
-            theme_en = nlp_data.get('theme_en', '')
-            if theme:
-              st.write(f'**총 {len(scenes)}개 씬** | 테마: {theme} ({theme_en})')
-            else:
-              st.write(f'**총 {len(scenes)}개 씬**')
+            primary_theme = nlp_data.get('primary_theme', nlp_data.get('theme', ''))
+            primary_theme_en = nlp_data.get('primary_theme_en', nlp_data.get('theme_en', ''))
+            surface_theme = nlp_data.get('surface_theme', '')
+            surface_theme_en = nlp_data.get('surface_theme_en', '')
+            dominant_emotion = nlp_data.get('dominant_emotion', '')
+            dominant_emotion_en = nlp_data.get('dominant_emotion_en', '')
+
+            st.write(f'**총 {len(scenes)}개 씬**')
+            col_meta1, col_meta2, col_meta3 = st.columns(3)
+            with col_meta1:
+              st.metric('주제 테마', f'{primary_theme} ({primary_theme_en})' if primary_theme else '-')
+            with col_meta2:
+              st.metric('표면 테마', f'{surface_theme} ({surface_theme_en})' if surface_theme else '-')
+            with col_meta3:
+              st.metric('지배적 정서', f'{dominant_emotion} ({dominant_emotion_en})' if dominant_emotion else '-')
 
             for idx, scene in enumerate(scenes):
-              with st.expander(f"씬 {idx + 1}: {scene.get('narration', '...')[:50]}..."):
+              with st.expander(f"씬 {idx + 1}: {scene.get('original_text', '...')}"):
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -297,9 +309,6 @@ else:
                   st.text('\n'.join(sentences))
 
                 with col2:
-                  st.write('**이미지 참고** (narration)')
-                  st.text(scene.get('narration', ''))
-
                   st.write('**감정**')
                   st.text(scene.get('emotion', ''))
 
