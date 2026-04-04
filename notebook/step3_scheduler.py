@@ -35,7 +35,7 @@ NEGATIVE_PROMPT = (
 
 def get_cache_path(poem_dir: Path) -> Path:
   """캐시 경로 생성"""
-  return poem_dir / 'step3_schedule.json'
+  return poem_dir / 'step3' / 'schedule.json'
 
 
 def load_schedule_from_cache(schedule_path: Path) -> Optional[dict]:
@@ -67,7 +67,7 @@ def build_sentence_schedules(
     use_cache: bool = True,
 ) -> str:
     """문장 단위 스케줄 생성 (모든 문장 동적 대응)"""
-    schedule_path = poem_dir / 'step3_sentence_schedule.json'
+    schedule_path = poem_dir / 'step3' / 'sentence_schedule.json'
 
     if use_cache and schedule_path.exists():
         logger.info(f'캐시 사용: {schedule_path}')
@@ -77,37 +77,29 @@ def build_sentence_schedules(
     from moviepy.editor import AudioFileClip
 
     for scene_idx, scene in enumerate(script_data):
-        sentences = scene.get('modern_sentences', [])
-
-        # 1씬=1문장 불변 조건 검증
-        if len(sentences) != 1:
-          logger.warning(f'Scene {scene_idx}: modern_sentences 개수={len(sentences)} (기대값=1)')
-
-        # 해당 씬에 할당된 오디오 파일 리스트
+        text = scene.get('modern_text', '').strip()
         scene_audios = sentence_audio_paths[scene_idx]
+        audio_path = scene_audios[0] if scene_audios else ""
+        image_prompt = scene.get('image_prompt', '')
 
-        for sent_idx, text in enumerate(sentences):
-            audio_path = scene_audios[sent_idx] if sent_idx < len(scene_audios) else ""
-            image_prompt = scene.get('image_prompt', '')
+        # 오디오 길이 측정
+        try:
+            with AudioFileClip(audio_path) as audio:
+                duration = audio.duration
+        except Exception as e:
+            logger.warning(f"오디오 길이 측정 실패({audio_path}): {e}")
+            duration = 2.0  # fallback
 
-            # 오디오 길이 측정
-            try:
-                with AudioFileClip(audio_path) as audio:
-                    duration = audio.duration
-            except Exception as e:
-                logger.warning(f"오디오 길이 측정 실패({audio_path}): {e}")
-                duration = 2.0 # Fallback
-
-            # 개별 문장 스케줄 추가
-            sentence_schedules.append({
-                'scene_index': scene_idx,
-                'sentence_index': sent_idx,
-                'text': text,
-                'image_prompt': image_prompt,
-                'negative_prompt': NEGATIVE_PROMPT,
-                'duration': duration,
-                'audio_path': audio_path,
-            })
+        sentence_schedules.append({
+            'scene_index': scene_idx,
+            'sentence_index': 0,
+            'text': text,
+            'image_prompt': image_prompt,
+            'negative_prompt': NEGATIVE_PROMPT,
+            'duration': duration,
+            'audio_path': audio_path,
+            'pose_type': scene.get('pose_type', 'standing_single'),
+        })
 
     final_schedule = {
         'sentence_schedules': sentence_schedules,
@@ -177,7 +169,7 @@ if __name__ == '__main__':
     exit(1)
 
 # 2. NLP 데이터 로드 (자동 탐색 모드)
-  nlp_path = poem_dir / 'step1_nlp.json'
+  nlp_path = poem_dir / 'step1' / 'nlp.json'
   if not nlp_path.exists():
     logger.error(f'✗ NLP 파일 없음: {nlp_path}')
     exit(1)
@@ -221,17 +213,15 @@ if __name__ == '__main__':
         scene_audios = []
         scene_alignments = []
         
-        # 해당 씬의 문장 개수만큼 반복
-        sentences = scene.get('modern_sentences', [])
-        for sent_idx in range(len(sentences)):
-            audio_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
-            alignment_path = poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
-            
-            if audio_path.exists():
-                scene_audios.append(str(audio_path))
-                scene_alignments.append(str(alignment_path))
-            else:
-                logger.error(f'✗ 파일 누락: {audio_path}')
+        # 1씬=1문장이므로 sent_idx=0 고정 (step2_tts.py의 get_sentence_audio_path와 동일 경로)
+        audio_path = poem_dir / 'step2' / f'scene{scene_idx:02d}_sent00_audio.mp3'
+        alignment_path = poem_dir / 'step2' / f'scene{scene_idx:02d}_sent00_alignment.json'
+
+        if audio_path.exists():
+            scene_audios.append(str(audio_path))
+            scene_alignments.append(str(alignment_path))
+        else:
+            logger.error(f'✗ 파일 누락: {audio_path}')
         
         sentence_audio_paths.append(scene_audios)
         sentence_alignment_paths.append(scene_alignments)
@@ -239,7 +229,6 @@ if __name__ == '__main__':
   # 4. Step 3 실행
   try:
     logger.info('\n스케줄 생성 실행 중...')
-    # 함수가 일반 함수라면 그대로 호출, 만약 async로 바꾸셨다면 await 사용
     schedule_path = build_sentence_schedules(
       script_data,
       sentence_audio_paths,
