@@ -62,7 +62,7 @@ def get_image_media_type(image_path: str) -> str:
 
 def get_cache_path(poem_dir: Path) -> Path:
   """poem_dir을 기반으로 캐시 파일 경로 생성"""
-  return poem_dir / 'step0_ocr.txt'
+  return poem_dir / 'step0' / 'ocr.txt'
 
 
 def load_from_cache(cache_path: Path) -> str | None:
@@ -76,6 +76,7 @@ def load_from_cache(cache_path: Path) -> str | None:
 def save_to_cache(cache_path: Path, text: str) -> None:
   """OCR 결과를 캐시 파일에 저장 (UTF-8)"""
   try:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(text, encoding='utf-8')
     logger.info('OCR 결과 캐시 저장: %s', cache_path)
   except UnicodeEncodeError:
@@ -178,21 +179,26 @@ def postprocess_ocr_text(text: str) -> str:
   return text.strip()
 
 
-def extract_text_from_image(image_path: str, poem_dir: Path, use_cache: bool = True) -> str:
+def extract_text_from_images(image_paths: list[str], poem_dir: Path, use_cache: bool = True) -> str:
   """
-  고전시가 이미지에서 원문 텍스트 추출 (Step 0 메인 함수)
+  고전시가 이미지(N장)에서 원문 텍스트 추출 — Step 0 메인 함수.
+  이미지를 순서대로 OCR하여 텍스트를 이어붙인다.
 
   Args:
-    image_path: 이미지 파일 경로 (PNG/JPG)
-    poem_dir: 캐시 및 아티팩트 저장 폴더 (poem_01, poem_02, ...)
+    image_paths: 이미지 파일 경로 리스트 (PNG/JPG), 순서 중요
+    poem_dir: 캐시 및 아티팩트 저장 폴더
     use_cache: 캐시 사용 여부 (기본값: True)
 
   Returns:
-    extracted_raw_text: 추출된 원문 텍스트
+    extracted_raw_text: 병합된 원문 텍스트
   """
+  if not image_paths:
+    raise ValueError('이미지 경로 리스트가 비어있습니다.')
+
   # 이미지 파일 존재 확인
-  if not Path(image_path).exists():
-    raise FileNotFoundError(f'이미지 파일을 찾을 수 없습니다: {image_path}')
+  for img in image_paths:
+    if not Path(img).exists():
+      raise FileNotFoundError(f'이미지 파일을 찾을 수 없습니다: {img}')
 
   # API 키 확인
   ncp_api_key = os.environ.get('NCP_CLOVA_API_KEY')
@@ -210,27 +216,34 @@ def extract_text_from_image(image_path: str, poem_dir: Path, use_cache: bool = T
     if cached_text is not None:
       return cached_text
 
-  logger.info('OCR 처리 시작: %s', image_path)
+  logger.info('OCR 처리 시작: %d장', len(image_paths))
 
   try:
-    # 이미지 인코딩
-    image_base64 = encode_image_to_base64(image_path)
-    media_type = get_image_media_type(image_path)
+    texts = []
+    for idx, image_path in enumerate(image_paths):
+      logger.info('이미지 %d/%d OCR 중: %s', idx + 1, len(image_paths), image_path)
+      image_base64 = encode_image_to_base64(image_path)
+      media_type = get_image_media_type(image_path)
+      raw = call_hcx005_ocr(image_base64, media_type)
+      texts.append(postprocess_ocr_text(raw))
 
-    # HCX-005 OCR 호출
-    extracted_raw_text = call_hcx005_ocr(image_base64, media_type)
+    # 여러 장이면 빈 줄로 구분하여 병합
+    extracted_raw_text = '\n\n'.join(texts)
 
-    # 후처리
-    extracted_raw_text = postprocess_ocr_text(extracted_raw_text)
-
-    # 캐시 저장 (use_cache 여부와 무관하게 항상 저장 — 하위 Step에서 필요)
+    # 캐시 저장 (use_cache 여부와 무관하게 항상 저장)
     save_to_cache(cache_path, extracted_raw_text)
 
+    logger.info('OCR 완료. 총 텍스트 길이: %d자', len(extracted_raw_text))
     return extracted_raw_text
 
   except Exception as e:
     logger.error('OCR 처리 실패: %s', str(e))
     raise RuntimeError(f'OCR 처리 중 오류 발생: {str(e)}') from e
+
+
+def extract_text_from_image(image_path: str, poem_dir: Path, use_cache: bool = True) -> str:
+  """하위호환 래퍼 — 단일 이미지. extract_text_from_images 로 위임."""
+  return extract_text_from_images([image_path], poem_dir, use_cache=use_cache)
 
 
 if __name__ == '__main__':
@@ -242,21 +255,29 @@ if __name__ == '__main__':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
   if len(sys.argv) < 2:
-    print('사용법: python step0_ocr.py <이미지_경로> [poem_dir]')
-    print('  예: python step0_ocr.py 구강_북새곡.png "cache/poem_01"')
-    print('  poem_dir 생략 시: cache/{이미지파일명} 자동 사용')
+    print('사용법: python step0_ocr.py <이미지1> [이미지2 ...] [poem_dir]')
+    print('  예 (1장): python step0_ocr.py 북새곡.png "cache/poem_01"')
+    print('  예 (2장): python step0_ocr.py 관동1.png 관동2.png "cache/poem_01"')
+    print('  poem_dir 생략 시: cache/{첫번째이미지파일명} 자동 사용')
     sys.exit(1)
 
-  image_file = sys.argv[1]
-  if len(sys.argv) >= 3:
-    poem_directory = sys.argv[2]
+  # 마지막 인자가 이미지 확장자가 아니면 poem_dir로 간주
+  IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
+  args = sys.argv[1:]
+  if args and Path(args[-1]).suffix.lower() not in IMAGE_EXTS:
+    poem_directory = args[-1]
+    image_files = args[:-1]
   else:
-    # poem_dir 기본값: cache/{이미지파일명(확장자 제거)}
-    poem_directory = f"cache/{Path(image_file).stem}"
+    image_files = args
+    poem_directory = f"cache/{Path(image_files[0]).stem}"
     logger.info('poem_dir 자동 설정: %s', poem_directory)
 
+  if not image_files:
+    print('오류: 이미지 파일을 하나 이상 지정하세요.')
+    sys.exit(1)
+
   try:
-    result_text = extract_text_from_image(image_file, poem_directory)
+    result_text = extract_text_from_images(image_files, poem_directory)
     print('\n=== 추출된 원문 텍스트 ===')
     print(result_text)
     print('========================\n')

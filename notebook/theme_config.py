@@ -54,33 +54,104 @@ EMOTION_IMAGE_TONE: dict[str, str] = {
 # ─── Step 1: 테마 분류 LLM 프롬프트용 ───
 
 def get_theme_classification_prompt() -> str:
-  """Step 1 LLM 시스템 프롬프트에 삽입할 테마 분류 지시문 (이중 테마)"""
-  lines = ["이 시의 테마/주제를 분석하여 다음 13개 카탈로그 중에서 선택하세요:"]
+  """Step 1 LLM 시스템 프롬프트에 삽입할 테마 분류 지시문 (CoT + Few-shot)"""
+  catalog_lines = []
   for code, info in THEME_CATALOG.items():
-    lines.append(f"  {code}. {info['ko']} — {info['desc']}")
+    catalog_lines.append(f"  {code}. {info['ko']} — {info['desc']}")
+  catalog_str = "\n".join(catalog_lines)
 
-  lines.append("")
-  lines.append("[중첩 해소 및 복합 주제 규칙]")
-  lines.append("- 고전 시가는 표면적 화자(예: 이별한 여성)와 이면적 의도(예: 유배된 신하)가 다른 경우가 많습니다.")
-  lines.append("- 'primary_theme': 시의 궁극적 핵심 진심(해설/나레이션용).")
-  lines.append("- 'surface_theme': 표면적 시적 상황(이미지 생성용). 같을 경우 동일 코드 사용.")
-  lines.append("- 연군 vs 애정: 실제 작가가 임금을 그리워하는 내용이라도, 시적 화자가 여성이면 primary=B, surface=E 또는 F")
-  lines.append("- 충절 vs 연군: 충성 의지이면 C, 임금 그리움이면 B")
-  lines.append("- 이별 vs 애정: 이별/기다림이면 F, 사랑 자체면 E")
-  lines.append("- 유배 vs 연군: 유배 고난이면 D, 임금 그리움이면 B")
-  lines.append("- 강호자연 vs 교훈: 자연미면 A, 윤리면 G")
-  lines.append("")
-  lines.append("[지배적 정서(Emotion) 선택]")
-  lines.append("작품 전체를 지배하는 감정선을 다음 중 하나로 선택하세요:")
+  emotion_lines = []
   for code, info in EMOTION_CATALOG.items():
-    lines.append(f"  {code}. {info['ko']} — {info['desc']}")
-  lines.append("")
-  lines.append("응답 JSON 최상위에 다음 6개 필드를 반드시 포함하세요:")
-  lines.append('"primary_theme": "코드(A~M)", "primary_theme_en": "영문키",')
-  lines.append('"surface_theme": "코드(A~M)", "surface_theme_en": "영문키",')
-  lines.append('"dominant_emotion": "코드(E1~E6)", "dominant_emotion_en": "영문키"')
+    emotion_lines.append(f"  {code}. {info['ko']} — {info['desc']}")
+  emotion_str = "\n".join(emotion_lines)
 
-  return "\n".join(lines)
+  prompt = f"""## 테마/정서 분류 (3단계 순서대로 판단)
+
+### 테마 카탈로그 (13개)
+{catalog_str}
+
+---
+
+### [1단계] surface_theme — 텍스트 표면에 보이는 상황
+시를 처음 읽었을 때 시적 화자가 처한 상황, 묘사된 장면이 무엇인지 고릅니다.
+제목이나 작가 정보 없이 원문 텍스트만 보고 판단하세요.
+
+예) "떠난 임을 기다리는 여인의 한탄" → F (이별의 정한)
+예) "자연 속에서 한가로이 노닌다" → A (강호자연)
+예) "나라를 걱정하며 죽음도 불사하겠다" → C (충절/우국)
+
+### [2단계] primary_theme — 작가의 궁극적 진심
+작가가 이 시를 왜 지었는지, 시 너머의 진짜 의도를 고릅니다.
+고전시가는 여성 화자를 빌려 임금에 대한 그리움을 표현하거나,
+자연을 빌려 유배의 한을 표현하는 경우가 많습니다.
+
+판단 규칙:
+- 화자가 여성이지만 실제로는 신하가 임금을 그리는 내용 → primary=B (연군)
+- 임금을 향한 충성 의지 표현 → primary=C (충절)
+- 유배지 고난 묘사 → primary=D (유배)
+- 표면과 진심이 같으면 surface와 동일 코드 사용
+
+혼동 방지:
+- 연군(B) vs 이별(F): 신하→임금 관계이면 B, 남녀 이별이면 F
+- 연군(B) vs 애정(E): 임금 그리움이면 B, 남녀 사랑 자체이면 E
+- 충절(C) vs 연군(B): 충성 의지·결의이면 C, 임금 그리움·잊혀짐이면 B
+- 유배(D) vs 연군(B): 유배지 고난·억울함이면 D, 임금 그리움이면 B
+
+### [3단계] dominant_emotion — 작품 전체 감정선 (테마와 독립 판단)
+테마에 관계없이 작품이 전달하는 지배적 감정을 고릅니다.
+
+{emotion_str}
+
+핵심 신호 단어:
+- E1 (그리움): "보고 싶다", "그립다", "기다린다", 아련하고 부드러운 슬픔
+- E2 (원망): "변했다", "잊었다", "낯이 변하다", "배신", "달라졌다", 차갑고 쓴 감정
+- E3 (비장): "죽어도", "변치 않겠다", "충성", "결의", 굳건한 의지
+- E4 (달관): "한가롭다", "흥겹다", "자연과 하나", 여유롭고 평온
+- E5 (해학): 풍자, 웃음, 과장, 반어적 표현
+- E6 (경건): 불교, 부처, 극락, 하늘, 종교적 외경
+
+⚠️ E1 vs E2 구분이 가장 중요:
+  상대방의 변심·배신·냉대를 원망하면 → E2
+  상대가 그립고 보고 싶고 아련하면 → E1
+
+---
+
+### Few-shot 예시 (참고)
+
+**예시 1 — 원가/연군류** (surface≠primary, 원망이 핵심)
+원문 발췌: "질 좋은 잣이 가을에도 떨어지지 않건만, 낯이 변해버리신 겨울이여"
+→ theme_reasoning: "표면적으로는 변심한 상대를 원망하는 이별의 한이나, 실제 작가는 자신을 잊은 임금을 향해 쓴 연군시"
+→ surface_theme: F (이별의 정한)
+→ primary_theme: B (연군)
+→ emotion_reasoning: "잣나무의 변치 않음 vs 변해버린 임금의 마음을 대조하여 배신감을 극대화. 차갑고 쓴 원망이 지배적"
+→ dominant_emotion: E2 (원망/차가움)
+
+**예시 2 — 강호자연류** (surface=primary, 달관이 핵심)
+원문 발췌: "청산리 벽계수야 수이 감을 자랑 마라, 명월이 만공산하니 쉬어 간들 어떠리"
+→ theme_reasoning: "자연물(물, 달)을 노래하며 인생의 덧없음을 달관하는 시. 표면과 진심 모두 강호자연"
+→ surface_theme: A (강호자연)
+→ primary_theme: A (강호자연)
+→ emotion_reasoning: "급히 흘러가는 물을 만류하며 달과 함께 쉬어가자는 여유. 평화롭고 달관된 정서"
+→ dominant_emotion: E4 (평화/달관)
+
+**예시 3 — 충절류** (surface=primary, 비장함이 핵심)
+원문 발췌: "이 몸이 죽고 죽어 일백번 고쳐 죽어, 백골이 진토 되어 넋이라도 있고 없고"
+→ theme_reasoning: "죽음을 무릅쓴 충성 의지를 직접 표현. 임금 그리움보다는 변치 않는 충성 결의가 핵심"
+→ surface_theme: C (충절/우국)
+→ primary_theme: C (충절/우국)
+→ emotion_reasoning: "죽어도 변치 않겠다는 굳건한 결의. 무겁고 비장한 분위기"
+→ dominant_emotion: E3 (비장/결연)
+
+---
+
+### 응답 JSON에 반드시 포함할 필드 (순서 중요)
+"theme_reasoning": "판단 근거 1~2문장 (surface→primary 순서로 설명)",
+"emotion_reasoning": "감정 판단 근거 1문장",
+"surface_theme": "코드(A~M)", "surface_theme_en": "영문키",
+"primary_theme": "코드(A~M)", "primary_theme_en": "영문키",
+"dominant_emotion": "코드(E1~E6)", "dominant_emotion_en": "영문키"
+"""
+  return prompt
 
 
 # ─── Step 1: 테마별 이미지 프롬프트 스타일 가이드 ───
