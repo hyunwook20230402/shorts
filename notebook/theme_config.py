@@ -6,11 +6,11 @@
 # 13개 테마 카탈로그
 THEME_CATALOG: dict[str, dict[str, str]] = {
   "A": {"ko": "강호자연", "en": "gangho_nature", "desc": "자연 속 한가로운 삶, 풍류"},
-  "B": {"ko": "연군", "en": "yearning_for_king", "desc": "임금에 대한 그리움 (유배/파직 후)"},
+  "B": {"ko": "연군", "en": "yearning_for_king", "desc": "임금에 대한 그리움, 잊혀짐에 대한 원망 (유배/파직 후)"},
   "C": {"ko": "충절/우국", "en": "loyalty_patriotism", "desc": "변함없는 충성, 나라 걱정"},
   "D": {"ko": "유배", "en": "exile", "desc": "유배지의 한과 억울함"},
   "E": {"ko": "애정", "en": "love", "desc": "남녀 간 사랑, 상사의 정"},
-  "F": {"ko": "이별의 정한", "en": "farewell_sorrow", "desc": "이별의 슬픔, 기다림, 재회 기원"},
+  "F": {"ko": "이별의 정한", "en": "farewell_sorrow", "desc": "이별의 슬픔, 배신에 대한 원망, 기다림, 재회 기원"},
   "G": {"ko": "교훈/도학", "en": "moral_teaching", "desc": "유교 윤리 덕목, 교화"},
   "H": {"ko": "풍자/해학", "en": "satire_humor", "desc": "사회 모순 비판, 웃음"},
   "I": {"ko": "무상/탄로", "en": "impermanence", "desc": "세월의 덧없음, 늙음 한탄"},
@@ -21,6 +21,34 @@ THEME_CATALOG: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_THEME = "A"  # fallback: 강호자연 (가장 중립적)
+
+
+# 6개 지배적 정서 카탈로그
+EMOTION_CATALOG: dict[str, dict[str, str]] = {
+  "E1": {"ko": "애절/그리움", "en": "melancholic_yearning",
+         "desc": "부드럽고 아련하며 슬픈 분위기"},
+  "E2": {"ko": "원망/차가움", "en": "cold_resentment",
+         "desc": "배신감, 차갑고 단절된, 쓸쓸한 분위기"},
+  "E3": {"ko": "비장/결연", "en": "resolute_solemn",
+         "desc": "의지가 굳건하고 무겁고 진지한 분위기"},
+  "E4": {"ko": "평화/달관", "en": "peaceful_detached",
+         "desc": "여유롭고 욕심이 없는 평온한 분위기"},
+  "E5": {"ko": "쾌활/해학", "en": "cheerful_witty",
+         "desc": "유머러스하고 밝고 활기찬 분위기"},
+  "E6": {"ko": "경건/숭고", "en": "sacred_sublime",
+         "desc": "종교적 외경, 장엄하고 신성한 분위기"},
+}
+DEFAULT_EMOTION = "E1"
+
+# 정서별 이미지 톤 가이드 (이미지 프롬프트에 주입)
+EMOTION_IMAGE_TONE: dict[str, str] = {
+  "E1": "soft diffused lighting, hazy mist, desaturated blue tones, wistful lonely atmosphere",
+  "E2": "stark cold lighting, sharp shadows, icy blue-gray palette, barren frozen landscape, bitter isolated mood",
+  "E3": "dramatic chiaroscuro, deep saturated tones, heavy clouds, tense powerful atmosphere",
+  "E4": "warm golden hour light, gentle breeze, open sky, calm contemplative mood",
+  "E5": "bright saturated colors, dynamic composition, warm sunlight, lively festive energy",
+  "E6": "ethereal glow, golden haze, vertical composition, vast sacred space, reverent stillness",
+}
 
 
 # ─── Step 1: 테마 분류 LLM 프롬프트용 ───
@@ -42,9 +70,15 @@ def get_theme_classification_prompt() -> str:
   lines.append("- 유배 vs 연군: 유배 고난이면 D, 임금 그리움이면 B")
   lines.append("- 강호자연 vs 교훈: 자연미면 A, 윤리면 G")
   lines.append("")
-  lines.append("응답 JSON 최상위에 다음 4개 필드를 반드시 포함하세요:")
+  lines.append("[지배적 정서(Emotion) 선택]")
+  lines.append("작품 전체를 지배하는 감정선을 다음 중 하나로 선택하세요:")
+  for code, info in EMOTION_CATALOG.items():
+    lines.append(f"  {code}. {info['ko']} — {info['desc']}")
+  lines.append("")
+  lines.append("응답 JSON 최상위에 다음 6개 필드를 반드시 포함하세요:")
   lines.append('"primary_theme": "코드(A~M)", "primary_theme_en": "영문키",')
-  lines.append('"surface_theme": "코드(A~M)", "surface_theme_en": "영문키"')
+  lines.append('"surface_theme": "코드(A~M)", "surface_theme_en": "영문키",')
+  lines.append('"dominant_emotion": "코드(E1~E6)", "dominant_emotion_en": "영문키"')
 
   return "\n".join(lines)
 
@@ -177,6 +211,16 @@ DEFAULT_BGM_VOLUME = {"narration": 0.9, "bgm": 0.25}
 def get_image_style_guide(theme_code: str) -> str:
   """surface_theme 코드 → 이미지 스타일 가이드 문자열"""
   return THEME_IMAGE_STYLE_GUIDE.get(theme_code, THEME_IMAGE_STYLE_GUIDE[DEFAULT_THEME])
+
+
+def get_emotion_info(emotion_code: str) -> dict[str, str]:
+  """정서 코드 → 카탈로그 정보 (fallback: DEFAULT_EMOTION)"""
+  return EMOTION_CATALOG.get(emotion_code, EMOTION_CATALOG[DEFAULT_EMOTION])
+
+
+def get_emotion_image_tone(emotion_code: str) -> str:
+  """정서 코드 → 이미지 톤 가이드 문자열"""
+  return EMOTION_IMAGE_TONE.get(emotion_code, EMOTION_IMAGE_TONE[DEFAULT_EMOTION])
 
 
 def get_theme_info(theme_code: str) -> dict[str, str]:

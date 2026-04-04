@@ -84,9 +84,9 @@ def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
   scenes = nlp_data.get('modern_script_data') or nlp_data.get('scenes', [])
   theme_code = nlp_data.get('primary_theme', nlp_data.get('theme', 'A'))
 
-  # 테마 힌트 로드
+  # 테마 + 정서 힌트 로드
   try:
-    from theme_config import get_bgm_hints, get_theme_info
+    from theme_config import get_bgm_hints, get_emotion_info, get_theme_info
     theme_hints = get_bgm_hints(theme_code)
     theme_info = get_theme_info(theme_code)
     theme_ko = theme_info.get('ko', '강호자연')
@@ -96,8 +96,12 @@ def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
       f"분위기: {theme_hints['mood']}\n"
       f"템포: {theme_hints['tempo']}"
     )
+    # 지배적 정서 반영
+    dominant_emotion = nlp_data.get('dominant_emotion', 'E1')
+    emotion_info = get_emotion_info(dominant_emotion)
+    hint_text += f"\n지배적 정서: {emotion_info['ko']} ({emotion_info['desc']})"
   except Exception as e:
-    logger.warning(f'테마 힌트 로드 실패 ({e}), 기본값 사용')
+    logger.warning(f'테마/정서 힌트 로드 실패 ({e}), 기본값 사용')
     hint_text = '권장 악기: gayageum, daegeum\n분위기: peaceful, traditional'
 
   if not scenes:
