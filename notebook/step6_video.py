@@ -112,8 +112,8 @@ def render_subtitle_image(
   line_height = draw.textbbox((0, 0), '가', font=font)[3] + 8
   total_text_height = line_height * len(lines)
 
-  # 세로 80% 위치 기준 가운데 정렬 (숏츠 하단 자막)
-  y_center = int(canvas_height * 0.80)
+  # 세로 65% 위치 기준 가운데 정렬 (숏츠 하단 자막)
+  y_center = int(canvas_height * 0.65)
   y_start = y_center - total_text_height // 2
 
   # opacity 적용 (0.0~1.0 → 0~255)
@@ -272,7 +272,7 @@ def mix_bgm_into_video(video_clip, bgm_path: str, narration_vol: float, bgm_vol:
     bgm_samples = bgm_samples[:, :required_samples]
     sf.write(tmp_path, bgm_samples.T, bgm_sr)
 
-    bgm_clip = AudioFileClip(tmp_path).subclipped(0, video_duration)
+    bgm_clip = AudioFileClip(tmp_path).subclip(0, video_duration)
     bgm_clip = bgm_clip.volumex(bgm_vol)
 
     mixed = CompositeAudioClip([narration_audio, bgm_clip])
