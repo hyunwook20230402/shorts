@@ -41,13 +41,31 @@ EMOTION_CATALOG: dict[str, dict[str, str]] = {
 DEFAULT_EMOTION = "E1"
 
 # 정서별 이미지 톤 가이드 (이미지 프롬프트에 주입)
+# ※ 조명·색조·분위기만 지정. 계절·배경 장소를 직접 바꾸는 키워드는 절대 포함하지 않는다.
 EMOTION_IMAGE_TONE: dict[str, str] = {
   "E1": "soft diffused lighting, hazy mist, desaturated blue tones, wistful lonely atmosphere",
-  "E2": "stark cold lighting, sharp shadows, icy blue-gray palette, barren frozen landscape, bitter isolated mood",
+  "E2": "stark cold lighting, sharp shadows, muted blue-gray color grading, bitter somber mood",
   "E3": "dramatic chiaroscuro, deep saturated tones, heavy clouds, tense powerful atmosphere",
-  "E4": "warm golden hour light, gentle breeze, open sky, calm contemplative mood",
+  "E4": "warm golden hour light, gentle breeze effect, open sky, calm contemplative mood",
   "E5": "bright saturated colors, dynamic composition, warm sunlight, lively festive energy",
   "E6": "ethereal glow, golden haze, vertical composition, vast sacred space, reverent stillness",
+}
+
+# 씬별 한글 감정 → 정서 코드 매핑
+SCENE_EMOTION_MAP: dict[str, str] = {
+  '슬픔': 'E1',
+  '그리움': 'E1',
+  '외로움': 'E1',
+  '원망': 'E2',
+  '분노': 'E3',
+  '비장': 'E3',
+  '자긍심': 'E3',
+  '평화': 'E4',
+  '관조': 'E4',
+  '희망': 'E5',
+  '기쁨': 'E5',
+  '쾌활': 'E5',
+  '경건': 'E6',
 }
 
 
@@ -247,22 +265,24 @@ THEME_BGM_HINTS: dict[str, dict[str, str]] = {
 
 # ─── Step 6: 자막 스타일 + BGM 볼륨 ───
 
+_SHORTS_SUB = {"color": (255, 255, 255), "stroke_color": (0, 0, 0), "stroke_width": 3, "size": 52, "opacity": 1.0}
+
 THEME_SUBTITLE_STYLE: dict[str, dict] = {
-  "A": {"color": (20, 80, 60), "size": 44, "opacity": 0.85},    # 다크 그린
-  "B": {"color": (60, 40, 80), "size": 46, "opacity": 0.9},     # 짙은 보라
-  "C": {"color": (180, 20, 20), "size": 52, "opacity": 1.0},    # 딥 레드
-  "D": {"color": (70, 70, 90), "size": 44, "opacity": 0.8},     # 회청
-  "E": {"color": (120, 40, 80), "size": 46, "opacity": 0.9},    # 로즈
-  "F": {"color": (80, 80, 110), "size": 44, "opacity": 0.85},   # 블루 그레이
-  "G": {"color": (40, 40, 40), "size": 48, "opacity": 1.0},     # 진한 검정
-  "H": {"color": (60, 60, 20), "size": 50, "opacity": 1.0},     # 올리브
-  "I": {"color": (100, 100, 100), "size": 44, "opacity": 0.7},  # 회색
-  "J": {"color": (120, 80, 20), "size": 46, "opacity": 0.9},    # 골드
-  "K": {"color": (30, 70, 30), "size": 46, "opacity": 0.9},     # 그린
-  "L": {"color": (100, 60, 20), "size": 48, "opacity": 1.0},    # 흙색
-  "M": {"color": (150, 30, 30), "size": 52, "opacity": 1.0},    # 레드
+  "A": _SHORTS_SUB,  # 숏츠 표준: 흰색 + 검은 외곽선
+  "B": _SHORTS_SUB,
+  "C": _SHORTS_SUB,
+  "D": _SHORTS_SUB,
+  "E": _SHORTS_SUB,
+  "F": _SHORTS_SUB,
+  "G": _SHORTS_SUB,
+  "H": _SHORTS_SUB,
+  "I": _SHORTS_SUB,
+  "J": _SHORTS_SUB,
+  "K": _SHORTS_SUB,
+  "L": _SHORTS_SUB,
+  "M": _SHORTS_SUB,
 }
-DEFAULT_SUBTITLE_STYLE = {"color": (0, 0, 0), "size": 48, "opacity": 1.0}
+DEFAULT_SUBTITLE_STYLE = _SHORTS_SUB.copy()
 
 THEME_BGM_VOLUME: dict[str, dict[str, float]] = {
   "A": {"narration": 0.8, "bgm": 0.4},    # BGM 높게 (자연 분위기)
@@ -292,6 +312,11 @@ def get_emotion_info(emotion_code: str) -> dict[str, str]:
 def get_emotion_image_tone(emotion_code: str) -> str:
   """정서 코드 → 이미지 톤 가이드 문자열"""
   return EMOTION_IMAGE_TONE.get(emotion_code, EMOTION_IMAGE_TONE[DEFAULT_EMOTION])
+
+
+def map_scene_emotion_to_code(scene_emotion: str, fallback: str = DEFAULT_EMOTION) -> str:
+  """씬별 한글 감정 → 정서 코드 매핑. 매핑 실패 시 fallback(dominant_emotion) 사용."""
+  return SCENE_EMOTION_MAP.get(scene_emotion, fallback)
 
 
 def get_theme_info(theme_code: str) -> dict[str, str]:

@@ -23,7 +23,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # 환경변수
-SUBTITLE_FONT_PATH = Path(os.getenv('SUBTITLE_FONT_PATH', 'C:/Windows/Fonts/malgun.ttf'))
+SUBTITLE_FONT_PATH = Path(os.getenv(
+  'SUBTITLE_FONT_PATH',
+  os.path.expandvars('%LOCALAPPDATA%/Microsoft/Windows/Fonts/NanumSquare.ttf'),
+))
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FPS = 30
@@ -31,7 +34,7 @@ OUTPUT_FPS = 30
 
 def get_cache_path(poem_dir: Path) -> Path:
   """캐시 경로 생성"""
-  return Path(poem_dir) / 'step6_shorts.mp4'
+  return Path(poem_dir) / 'step6' / 'shorts.mp4'
 
 
 def get_audio_duration(audio_path: str) -> float:
@@ -63,6 +66,8 @@ def render_subtitle_image(
   font_size: int,
   color: tuple,
   opacity: float,
+  stroke_color: tuple = (0, 0, 0),
+  stroke_width: int = 3,
 ):
   """
   PIL로 자막 텍스트를 RGBA 이미지로 렌더링.
@@ -82,18 +87,18 @@ def render_subtitle_image(
     font = ImageFont.load_default()
     logger.warning('자막 폰트 로드 실패, 기본 폰트 사용')
 
-  # 텍스트 줄바꿈 (최대 너비 기준)
+  # 텍스트 줄바꿈 (어절 단위, 단어 중간에서 잘리지 않도록)
   max_text_width = int(canvas_width * 0.85)
   lines = []
   for paragraph in text.split('\n'):
-    words = list(paragraph)  # 한국어는 글자 단위
+    words = paragraph.split(' ')  # 어절(띄어쓰기) 단위
     current_line = ''
-    for ch in words:
-      test_line = current_line + ch
+    for word in words:
+      test_line = f'{current_line} {word}'.strip() if current_line else word
       bbox = draw.textbbox((0, 0), test_line, font=font)
       if bbox[2] - bbox[0] > max_text_width and current_line:
         lines.append(current_line)
-        current_line = ch
+        current_line = word
       else:
         current_line = test_line
     if current_line:
@@ -107,8 +112,8 @@ def render_subtitle_image(
   line_height = draw.textbbox((0, 0), '가', font=font)[3] + 8
   total_text_height = line_height * len(lines)
 
-  # 세로 50% 위치 기준 가운데 정렬
-  y_center = int(canvas_height * 0.50)
+  # 세로 80% 위치 기준 가운데 정렬 (숏츠 하단 자막)
+  y_center = int(canvas_height * 0.80)
   y_start = y_center - total_text_height // 2
 
   # opacity 적용 (0.0~1.0 → 0~255)
@@ -118,7 +123,12 @@ def render_subtitle_image(
     bbox = draw.textbbox((0, 0), line, font=font)
     line_width = bbox[2] - bbox[0]
     x = (canvas_width - line_width) // 2
-    draw.text((x, y_start), line, font=font, fill=(*color, alpha))
+    draw.text(
+      (x, y_start), line, font=font,
+      fill=(*color, alpha),
+      stroke_width=stroke_width,
+      stroke_fill=(*stroke_color, alpha),
+    )
     y_start += line_height
 
   import numpy as np
@@ -132,9 +142,14 @@ def make_subtitle_clip(
   font_size: int,
   color: tuple,
   opacity: float,
+  stroke_color: tuple = (0, 0, 0),
+  stroke_width: int = 3,
 ) -> ImageClip:
   """PIL로 렌더링한 자막 이미지를 MoviePy ImageClip으로 반환"""
-  arr = render_subtitle_image(text, OUTPUT_WIDTH, OUTPUT_HEIGHT, font_size, color, opacity)
+  arr = render_subtitle_image(
+    text, OUTPUT_WIDTH, OUTPUT_HEIGHT, font_size, color, opacity,
+    stroke_color=stroke_color, stroke_width=stroke_width,
+  )
   clip = (
     ImageClip(arr, ismask=False)
     .set_duration(duration)
@@ -194,8 +209,10 @@ def add_subtitles_to_video(
   font_size: int,
   color: tuple,
   opacity: float,
+  stroke_color: tuple = (0, 0, 0),
+  stroke_width: int = 3,
 ):
-  """이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음 (테마별 스타일 적용)"""
+  """이미 합성된 비디오 위에 씬별 자막을 순차적으로 얹음 (숏츠 스타일 적용)"""
   subtitle_clips = []
   current_time = 0.0
 
@@ -204,7 +221,10 @@ def add_subtitles_to_video(
     duration = entry.get('duration', 0.0)
 
     if text and duration > 0:
-      sub = make_subtitle_clip(text, duration, current_time, font_size, color, opacity)
+      sub = make_subtitle_clip(
+        text, duration, current_time, font_size, color, opacity,
+        stroke_color=stroke_color, stroke_width=stroke_width,
+      )
       subtitle_clips.append(sub)
 
     current_time += duration
@@ -228,7 +248,7 @@ def mix_bgm_into_video(video_clip, bgm_path: str, narration_vol: float, bgm_vol:
   logger.info(f'BGM 믹싱: {bgm_path} (나레이션={narration_vol}, BGM={bgm_vol})')
 
   # 나레이션 볼륨 조정
-  narration_audio = video_clip.audio.multiply_volume(narration_vol)
+  narration_audio = video_clip.audio.volumex(narration_vol)
   video_duration = video_clip.duration
 
   # BGM 로드
@@ -253,7 +273,7 @@ def mix_bgm_into_video(video_clip, bgm_path: str, narration_vol: float, bgm_vol:
     sf.write(tmp_path, bgm_samples.T, bgm_sr)
 
     bgm_clip = AudioFileClip(tmp_path).subclipped(0, video_duration)
-    bgm_clip = bgm_clip.multiply_volume(bgm_vol)
+    bgm_clip = bgm_clip.volumex(bgm_vol)
 
     mixed = CompositeAudioClip([narration_audio, bgm_clip])
     logger.info(f'BGM 믹싱 완료: {mixed.duration:.2f}초')
@@ -334,7 +354,7 @@ def compose_final_video(
   logger.info('최종 영상 합성 중...')
 
   # 테마 기반 자막 스타일 로드
-  nlp_path = Path(poem_dir) / 'step1_nlp.json'
+  nlp_path = Path(poem_dir) / 'step1' / 'nlp.json'
   primary_theme = 'A'
   surface_theme = 'A'
   if nlp_path.exists():
@@ -383,13 +403,15 @@ def compose_final_video(
         font_size=subtitle_style['size'],
         color=subtitle_style['color'],
         opacity=subtitle_style['opacity'],
+        stroke_color=subtitle_style.get('stroke_color', (0, 0, 0)),
+        stroke_width=subtitle_style.get('stroke_width', 3),
       )
       logger.info('자막 Burn-in 완료')
     except Exception as e:
       logger.warning(f'자막 추가 실패 (계속): {e}')
 
     # 4. BGM 믹싱 (step5_bgm.wav 존재 시)
-    bgm_path = Path(poem_dir) / 'step5_bgm.wav'
+    bgm_path = Path(poem_dir) / 'step5' / 'bgm.wav'
     if bgm_path.exists():
       try:
         video, tmp_bgm_path = mix_bgm_into_video(
@@ -448,11 +470,11 @@ def run_step6(
 
   # 파일 자동 탐색 (파라미터 미제공 시)
   if still_image_paths is None:
-    still_image_paths = sorted([str(f) for f in poem_dir.glob('step4_*_still.png')])
+    still_image_paths = sorted([str(f) for f in (poem_dir / 'step4').glob('*_still.png')])
   if audio_paths is None:
-    audio_paths = sorted([str(f) for f in poem_dir.glob('step2_*_audio.mp3')])
+    audio_paths = sorted([str(f) for f in (poem_dir / 'step2').glob('*_audio.mp3')])
   if sentence_schedule_path is None:
-    schedule_path = poem_dir / 'step3_sentence_schedule.json'
+    schedule_path = poem_dir / 'step3' / 'sentence_schedule.json'
     if not schedule_path.exists():
       raise FileNotFoundError(f'Step 3 스케줄 없음: {schedule_path}')
     sentence_schedule_path = str(schedule_path)
