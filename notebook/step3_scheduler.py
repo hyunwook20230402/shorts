@@ -24,12 +24,13 @@ COMMON_KEYWORDS = (
     'traditional korean ink wash, gentle art style, illustration style'
 )
 NEGATIVE_PROMPT = (
-    'worst quality, low quality, blurry, ink painting, chinese characters, '
+    'worst quality, low quality, blurry, chinese characters, '
     'text, signature, watermark, writing, calligraphy, letters, '
     'inscription, seal, stamp, characters, glyphs, monochrome, grayscale, '
     'wine glass, beer glass, modern bottle, cocktail glass, western cup, '
-    'modern clothing, suit, tie, jeans, sneakers, western architecture, '
-    'modern furniture, television, phone, computer, car, electricity'
+    'modern clothing, suit, tie, jeans, sneakers, coat, trench coat, hoodie, '
+    'winter coat, puffer jacket, modern jacket, western clothing, '
+    'western architecture, modern furniture, television, phone, computer, car, electricity'
 )
 
 

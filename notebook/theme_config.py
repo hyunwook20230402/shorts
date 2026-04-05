@@ -43,12 +43,12 @@ DEFAULT_EMOTION = "E1"
 # 정서별 이미지 톤 가이드 (이미지 프롬프트에 주입)
 # ※ 조명·색조·분위기만 지정. 계절·배경 장소를 직접 바꾸는 키워드는 절대 포함하지 않는다.
 EMOTION_IMAGE_TONE: dict[str, str] = {
-  "E1": "soft diffused lighting, hazy mist, desaturated blue tones, wistful lonely atmosphere",
-  "E2": "stark cold lighting, sharp shadows, muted blue-gray color grading, bitter somber mood",
-  "E3": "dramatic chiaroscuro, deep saturated tones, heavy clouds, tense powerful atmosphere",
-  "E4": "warm golden hour light, gentle breeze effect, open sky, calm contemplative mood",
-  "E5": "bright saturated colors, dynamic composition, warm sunlight, lively festive energy",
-  "E6": "ethereal glow, golden haze, vertical composition, vast sacred space, reverent stillness",
+  "E1": "부드럽고 퍼진 조명, 아스라한 안개, 채도 낮은 청색 계열, 쓸쓸하고 그리운 분위기",
+  "E2": "차갑고 단호한 조명, 선명한 그림자, 무채색 청회색 톤, 쓰라리고 어두운 분위기",
+  "E3": "극적인 명암 대비, 깊고 진한 채도, 무거운 먹구름, 긴장되고 강인한 분위기",
+  "E4": "따뜻한 황금빛 노을 조명, 부드러운 바람 효과, 탁 트인 하늘, 고요하고 달관한 분위기",
+  "E5": "선명하고 밝은 채도, 역동적인 구도, 따뜻한 햇살, 활기차고 흥겨운 분위기",
+  "E6": "신성한 빛 발산, 금빛 안개, 수직 구도, 광활하고 장엄한 공간, 경건하고 숙연한 분위기",
 }
 
 # 씬별 한글 감정 → 정서 코드 매핑
@@ -175,19 +175,19 @@ def get_theme_classification_prompt() -> str:
 # ─── Step 1: 테마별 이미지 프롬프트 스타일 가이드 ───
 
 THEME_IMAGE_STYLE_GUIDE: dict[str, str] = {
-  "A": "cool blue-green palette, misty soft atmosphere, sage and teal hues",
-  "B": "muted blue-gray tones, pale moonlit haze, cold desaturated lighting",
-  "C": "dark ominous sky, deep crimson accent tones, high-contrast dramatic lighting",
-  "D": "cold desolate gray-blue palette, stark overcast lighting, bleak washed-out tones",
-  "E": "warm soft-focus lighting, warm rose and amber tones, gentle diffused glow",
-  "F": "cool blue-gray tones, fading dusk light, desaturated melancholic palette",
-  "G": "neutral muted tones, clean even lighting, composed understated palette",
-  "H": "vivid saturated folk colors, bright warm lighting, high chroma palette",
-  "I": "desaturated earthy palette, dim autumn light, muted brown and ochre tones",
-  "J": "warm golden light, soft incense haze, amber and ivory glow",
-  "K": "clear bright natural light, vivid scenic colors, crisp high-contrast daylight",
-  "L": "warm earthy harvest tones, golden afternoon light, amber and sienna palette",
-  "M": "majestic gold and deep red tones, warm ceremonial lighting, rich saturated palette",
+  "A": "차갑고 맑은 청록 계열, 부드러운 안개 분위기, 쑥빛·청색 계열",
+  "B": "무채색 청회색 톤, 차갑고 채도 낮은 조명, 어둡고 쓸쓸한 분위기",
+  "C": "어둡고 위압적인 하늘, 짙은 진홍색 포인트 톤, 고대비 극적 조명",
+  "D": "차갑고 황량한 회청색 팔레트, 흐리고 강렬한 역광, 탁하고 씻겨나간 톤",
+  "E": "따뜻하고 부드러운 포커스 조명, 따뜻한 장밋빛·호박색 톤, 은은한 확산광",
+  "F": "차가운 청회색 톤, 사그라드는 황혼빛, 채도 낮은 애절한 팔레트",
+  "G": "중립적인 무채색 톤, 깔끔하고 균일한 조명, 절제된 팔레트",
+  "H": "선명하고 채도 높은 민화풍 색상, 밝고 따뜻한 조명, 고채도 팔레트",
+  "I": "채도 낮은 흙빛 팔레트, 어스름한 가을 빛, 탁한 갈색·황토색 톤",
+  "J": "따뜻한 황금빛 조명, 은은한 향연기 안개, 호박색·상아색 발광",
+  "K": "맑고 밝은 자연광, 선명한 경치색, 선명하고 고대비의 낮 빛",
+  "L": "따뜻한 흙빛 수확 톤, 황금빛 오후 조명, 호박색·시에나 팔레트",
+  "M": "장엄한 금빛·짙은 적색 톤, 따뜻한 의례적 조명, 풍부하고 진한 채도",
 }
 
 
@@ -227,19 +227,19 @@ DEFAULT_TRANSITION_PADDING = 0.3
 # ─── Step 4: LoRA/CFG + 색감 프롬프트 ───
 
 THEME_IMAGE_PARAMS: dict[str, dict] = {
-  "A": {"lora": 0.9, "cfg": 7.0, "color": "blue-green tones, misty atmosphere, sage colors", "neg_extra": "urban, modern city"},
-  "B": {"lora": 0.85, "cfg": 7.5, "color": "muted palace tones, moonlit haze", "neg_extra": "cheerful, bright colors"},
-  "C": {"lora": 0.7, "cfg": 8.5, "color": "deep crimson accents, dark dramatic sky", "neg_extra": "bright cheerful colors"},
-  "D": {"lora": 0.85, "cfg": 7.5, "color": "cold desolate gray-blue, barren landscape", "neg_extra": "warm, lush, green"},
-  "E": {"lora": 0.75, "cfg": 7.0, "color": "warm rose tones, soft pink light", "neg_extra": "cold harsh lighting"},
-  "F": {"lora": 0.8, "cfg": 7.0, "color": "cool blue-gray tones, fading light", "neg_extra": "vibrant warm colors"},
-  "G": {"lora": 0.8, "cfg": 8.0, "color": "neutral scholarly tones, clean composition", "neg_extra": "chaotic, messy"},
-  "H": {"lora": 0.6, "cfg": 6.5, "color": "vivid saturated folk colors", "neg_extra": "serious, somber, dark"},
-  "I": {"lora": 0.85, "cfg": 7.0, "color": "desaturated earthy palette, autumn decay", "neg_extra": "vivid saturated colors"},
-  "J": {"lora": 0.8, "cfg": 7.0, "color": "golden temple light, incense haze", "neg_extra": "secular, modern"},
-  "K": {"lora": 0.8, "cfg": 7.5, "color": "scenic panoramic colors, clear sky", "neg_extra": "indoor, cramped"},
-  "L": {"lora": 0.7, "cfg": 7.0, "color": "warm earthy harvest tones", "neg_extra": "cold, winter"},
-  "M": {"lora": 0.8, "cfg": 8.0, "color": "majestic gold and red, royal court", "neg_extra": "humble, poor"},
+  "A": {"lora": 0.9, "cfg": 7.0, "color": "청록 계열, 안개 낀 분위기, 쑥빛", "neg_extra": "도시, 현대 건물"},
+  "B": {"lora": 0.85, "cfg": 7.5, "color": "무채색 궁중 톤, 차갑고 어두운 분위기", "neg_extra": "밝고 화사한 색상"},
+  "C": {"lora": 0.7, "cfg": 8.5, "color": "짙은 진홍 포인트, 어둡고 극적인 하늘", "neg_extra": "밝고 명랑한 색상"},
+  "D": {"lora": 0.85, "cfg": 7.5, "color": "차갑고 황량한 회청색, 척박한 풍경", "neg_extra": "따뜻한 색, 울창한 녹음"},
+  "E": {"lora": 0.75, "cfg": 7.0, "color": "따뜻한 장밋빛, 부드러운 분홍빛", "neg_extra": "차갑고 거친 조명"},
+  "F": {"lora": 0.8, "cfg": 7.0, "color": "차가운 청회색 톤, 사그라드는 빛", "neg_extra": "생동감 넘치는 따뜻한 색"},
+  "G": {"lora": 0.8, "cfg": 8.0, "color": "중립적인 선비풍 톤, 깔끔한 구도", "neg_extra": "혼란스럽고 어수선한"},
+  "H": {"lora": 0.6, "cfg": 6.5, "color": "선명하고 채도 높은 민화풍 색상", "neg_extra": "심각하고 어두운"},
+  "I": {"lora": 0.85, "cfg": 7.0, "color": "채도 낮은 흙빛, 가을 낙엽 색", "neg_extra": "선명하고 채도 높은 색상"},
+  "J": {"lora": 0.8, "cfg": 7.0, "color": "황금빛 사찰 조명, 향연기 안개", "neg_extra": "세속적, 현대적"},
+  "K": {"lora": 0.8, "cfg": 7.5, "color": "탁 트인 경치색, 맑은 하늘", "neg_extra": "실내, 좁은 공간"},
+  "L": {"lora": 0.7, "cfg": 7.0, "color": "따뜻한 흙빛 수확 계열 색", "neg_extra": "차갑고 겨울 느낌"},
+  "M": {"lora": 0.8, "cfg": 8.0, "color": "장엄한 금빛·적색, 왕궁 분위기", "neg_extra": "초라하고 빈곤한"},
 }
 DEFAULT_IMAGE_PARAMS = {"lora": 0.8, "cfg": 7.5, "color": "", "neg_extra": ""}
 

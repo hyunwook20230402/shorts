@@ -1107,9 +1107,18 @@ def generate_all_images(
 
     try:
       if USE_FLUX:
+        # Flux는 네거티브 프롬프트 미지원 → 포지티브에 전통 의상/소품 키워드 강제 추가
+        FLUX_STYLE_SUFFIX = (
+          'traditional korean hanbok, joseon dynasty clothing, '
+          'traditional korean accessories, korean traditional hair ornaments, '
+          'gat hat, binyeo hairpin, traditional korean shoes, '
+          'traditional east asian robes, ink wash painting style, guofeng, '
+          'no modern clothing, no coat, no jacket, no western shoes, no sneakers'
+        )
+        flux_prompt = f'{prompt_text}, {FLUX_STYLE_SUFFIX}'
         # Flux.1-dev FP8 워크플로우 (네거티브 프롬프트 없음)
         workflow = build_flux_workflow(
-          prompt_text,
+          flux_prompt,
           lora_strength=FLUX_LORA_STRENGTH,
           steps=FLUX_STEPS,
           guidance=FLUX_GUIDANCE,

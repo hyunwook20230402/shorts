@@ -88,7 +88,7 @@ def render_subtitle_image(
     logger.warning('자막 폰트 로드 실패, 기본 폰트 사용')
 
   # 텍스트 줄바꿈 (어절 단위, 단어 중간에서 잘리지 않도록)
-  max_text_width = int(canvas_width * 0.85)
+  max_text_width = int(canvas_width * 0.75)
   lines = []
   for paragraph in text.split('\n'):
     words = paragraph.split(' ')  # 어절(띄어쓰기) 단위
