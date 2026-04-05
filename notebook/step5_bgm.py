@@ -116,7 +116,7 @@ def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
   emotions = [s.get('emotion', '') for s in scenes]
   scene_descriptions = [s.get('scene_description', '') for s in scenes]
   backgrounds = list({s.get('background', s.get('scene_description', '')) for s in scenes})
-  modern_texts = [s.get('modern_text', '') for s in scenes]
+  original_texts = [s.get('original_text', '') for s in scenes]
 
   # 판단 근거 조건부 삽입 (없으면 빈 줄 방지)
   reasoning_lines = '\n'.join(filter(None, [
@@ -132,7 +132,7 @@ def generate_bgm_prompt_with_llm(nlp_data: dict) -> str:
 씬 감정: {', '.join(emotions)}
 장면 묘사: {', '.join(scene_descriptions)}
 배경: {', '.join(backgrounds)}
-현대어 번역: {' / '.join(modern_texts)}
+원문: {' / '.join(original_texts)}
 
 위 테마 힌트와 씬 정보를 바탕으로 Stable Audio 모델에 입력할 배경음악 프롬프트를 영어로 생성하세요.
 조건:

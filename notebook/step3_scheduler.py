@@ -78,7 +78,7 @@ def build_sentence_schedules(
     from moviepy.editor import AudioFileClip
 
     for scene_idx, scene in enumerate(script_data):
-        text = scene.get('modern_text', '').strip()
+        text = scene.get('original_text', '').strip()
         scene_audios = sentence_audio_paths[scene_idx]
         audio_path = scene_audios[0] if scene_audios else ""
         image_prompt = scene.get('image_prompt', '')

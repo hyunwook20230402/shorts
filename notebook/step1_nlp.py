@@ -53,31 +53,25 @@ def extract_original_lines(text: str) -> list[str]:
   return [ln.strip() for ln in text.splitlines() if ln.strip() and ln.strip() != '---']
 
 
-translate_system_prompt = """당신은 한국 고전시가 번역가이자 웹툰 쇼츠 대본 작가입니다.
+translate_system_prompt = """당신은 한국 고전시가 분석가이자 웹툰 쇼츠 대본 작가입니다.
 입력된 시구 1행을 분석하여 씬 1개 JSON을 출력하세요.
-
-## 핵심 제약 (반드시 준수)
-- modern_text는 오직 [번역할 시구 1행]에 적힌 내용만 번역합니다.
-- [전체 원문 컨텍스트]는 문맥 파악용으로만 참고하고, 다른 행의 내용을 modern_text에 포함하지 마세요.
-- 번역할 행이 미완성 구절이어도 그 행 단독으로 완결된 짧은 문장으로 번역합니다.
 
 ## 규칙
 1. 반드시 씬 1개만 출력. 여러 씬 출력 금지.
-2. modern_text: 정확히 1개 완결 **한국어** 문장. 번역할 1행의 의미만 담습니다. 인터넷 신조어·이모티콘(ㅋㅋㅋ, ㅠㅠ 등) 사용 금지.
-3. emotion: **한국어** 핵심 감정 한 단어 (예: 비장, 쾌활, 슬픔, 고독)
-4. main_focus: 이미지에 반드시 포함해야 할 구성 요소를 배열로 선택. 최소 1개, 해당하는 것 모두 선택.
+2. emotion: **한국어** 핵심 감정 한 단어 (예: 비장, 쾌활, 슬픔, 고독)
+3. main_focus: 이미지에 반드시 포함해야 할 구성 요소를 배열로 선택. 최소 1개, 해당하는 것 모두 선택.
    - "background": 자연경관·건축·계절·날씨 등 배경 요소가 이미지에 중요한 경우
    - "character": 인물의 행동·표정·자세가 이미지에 중요한 경우
    - "object": 특정 사물(술잔, 가야금, 칼, 깃발 등)이 이미지 주제에 중요한 경우
    - 예: 산속에서 술을 마시는 인물 → ["background","character","object"]
    - 예: 달빛 연못 풍경만 → ["background"]
-5. scene_description: 번역할 행 장면의 핵심 시각 요소를 **영어** 키워드/구절로 묘사 (60토큰 이내). main_focus에 포함된 모든 요소(배경장소,계절,시간,날씨,인물 행동,표정,사물)를 포함.
+4. scene_description: 분석할 행 장면의 핵심 시각 요소를 **영어** 키워드/구절로 묘사 (60토큰 이내). main_focus에 포함된 모든 요소(배경장소,계절,시간,날씨,인물 행동,표정,사물)를 포함.
 
 ## 출력 형식 (JSON만 출력, 설명 금지)
-{{"original_text":"...","modern_text":"...","emotion":"...","main_focus":["background"],"scene_description":"..."}}
+{{"original_text":"...","emotion":"...","main_focus":["background"],"scene_description":"..."}}
 """
 
-translate_user_prompt_prefix = '[번역할 시구 1행]\n{line}'
+translate_user_prompt_prefix = '[분석할 시구 1행]\n{line}'
 
 image_prompt_system_prompt = """당신은 ComfyUI 이미지 생성 전문가입니다.
 한국 고전시가 웹툰 영상을 위한 씬 이미지 프롬프트를 영어로 생성하세요.
@@ -262,10 +256,6 @@ def safe_parse_json(text: str) -> dict:
       raise ValueError(f'LLM 응답 JSON 파싱 불가: {str(e2)}') from e2
 
 
-def split_into_sentences(text: str) -> list[str]:
-  """modern_text를 문장 단위로 분리 (마침표 기준)"""
-  parts = re.split(r'(?<=[.!?])\s+', text.strip())
-  return [p.strip() for p in parts if p.strip()]
 
 
 
@@ -274,10 +264,8 @@ def validate_scene(raw_scene: dict, idx: int) -> dict:
   """
   씬 데이터 유효성 검사 및 정규화.
 
-  불변 조건: 1씬 = 1문장
+  불변 조건: 1씬 = 1행 = 1문장 (original_text가 원래 1행이므로 자동 보장)
   """
-  modern_text = raw_scene.get('modern_text', '')
-
   # main_focus: 리스트 보장 + 구버전 문자열 캐시 호환
   raw_focus = raw_scene.get('main_focus', ['background'])
   if isinstance(raw_focus, str):
@@ -288,7 +276,6 @@ def validate_scene(raw_scene: dict, idx: int) -> dict:
   base = {
     'scene_index': idx + 1,
     'original_text': raw_scene.get('original_text', ''),
-    'modern_text': modern_text,
     'emotion': raw_scene.get('emotion', '미정'),
     'main_focus': main_focus,
     'scene_description': raw_scene.get('scene_description', 'traditional Korean landscape'),
@@ -305,9 +292,9 @@ def validate_scene(raw_scene: dict, idx: int) -> dict:
   wait=wait_exponential(multiplier=1, min=2, max=30),
   reraise=True,
 )
-def call_hcx005_translate_line(line: str) -> dict:
-  """HCX-005로 시구 1행 → 씬 dict 1개 번역"""
-  logger.info('HCX-005 행 번역 호출: %s', line[:30])
+def call_hcx005_analyze_line(line: str) -> dict:
+  """HCX-005로 시구 1행 → 씬 dict 1개 분석 (emotion, main_focus, scene_description 추출)"""
+  logger.info('HCX-005 행 분석 호출: %s', line[:30])
 
   api_key = os.environ.get('NCP_CLOVA_API_KEY')
   if not api_key:
@@ -341,20 +328,20 @@ def call_hcx005_translate_line(line: str) -> dict:
 
     result = response.json()
     response_text = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-    logger.info('HCX-005 행 번역 응답 수신, JSON 파싱 중...')
+    logger.info('HCX-005 행 분석 응답 수신, JSON 파싱 중...')
     parsed = safe_parse_json(response_text)
     parsed['original_text'] = line  # 원문 행 강제 보장
     return parsed
 
   except requests.exceptions.RequestException as e:
-    logger.error('HCX-005 행 번역 API 호출 실패: %s', str(e))
+    logger.error('HCX-005 행 분석 API 호출 실패: %s', str(e))
     try:
       error_detail = e.response.text if hasattr(e, 'response') else ''
       if error_detail:
         logger.error('응답 본문: %s', error_detail)
     except Exception:
       pass
-    raise RuntimeError(f'HCX-005 행 번역 중 오류 발생: {str(e)}') from e
+    raise RuntimeError(f'HCX-005 행 분석 중 오류 발생: {str(e)}') from e
 
 
 @retry(
@@ -564,8 +551,8 @@ def log_to_notion_poem(
     return
 
   try:
-    # 씬 전체 현대어를 합쳐서 하나의 레코드로 저장
-    modern_combined = '\n\n'.join(s['modern_text'] for s in modern_scenes)
+    # 씬 전체 원문을 합쳐서 하나의 레코드로 저장
+    modern_combined = '\n\n'.join(s['original_text'] for s in modern_scenes)
 
     client.pages.create(
       parent={'database_id': db_id},
@@ -738,13 +725,13 @@ def process_nlp(
     title = theme_result.get('title', '미상')
     author = theme_result.get('author', '미상')
 
-    # --- Step 1_2: HCX-005 번역 (행별 개별 호출, 1행=1씬 보장) ---
+    # --- Step 1_2: HCX-005 분석 (행별 개별 호출, 1행=1씬 보장) ---
     original_lines = extract_original_lines(extracted_raw_text)
-    logger.info('Step 1_2: %d행 개별 번역 시작', len(original_lines))
+    logger.info('Step 1_2: %d행 개별 분석 시작', len(original_lines))
     raw_scenes = []
     for line_idx, line in enumerate(original_lines):
-      logger.info('행 %d/%d 번역 중: %s', line_idx + 1, len(original_lines), line[:20])
-      scene_dict = call_hcx005_translate_line(line)
+      logger.info('행 %d/%d 분석 중: %s', line_idx + 1, len(original_lines), line[:20])
+      scene_dict = call_hcx005_analyze_line(line)
       scene_dict['scene_index'] = line_idx + 1
       raw_scenes.append(scene_dict)
     logger.info('Step 1_2 완료: %d씬', len(raw_scenes))
@@ -757,15 +744,11 @@ def process_nlp(
         current_scene_idx = i + 1
         logger.info(f'이미지 프롬프트 생성 중: 씬 {current_scene_idx}/{len(validated_scenes)}')
         
-        # ✅ 체크 2: 모든 필드를 .get()으로 안전하게 가져옴
-        sentence_text = scene.get('modern_text', '')
-        
         sentence_scene_ctx = {
             'scene_index': current_scene_idx,
             'original_text': scene.get('original_text', ''),
             'emotion': scene.get('emotion', 'serene'),
             'scene_description': scene.get('scene_description', 'traditional Korean landscape'),
-            'modern_text': sentence_text,
             'main_focus': scene.get('main_focus', 'background'),
         }
         
@@ -882,7 +865,6 @@ if __name__ == '__main__':
     for scene in script_data:
       print(f"\n[씬 {scene['scene_index']}] 감정: {scene['emotion']}")
       print(f"원문: {scene['original_text'][:60]}...")
-      print(f"현대어: {scene['modern_text'][:60]}...")
     print('\n=== 이미지 프롬프트 샘플 ===')
     if prompts:
       print(f'씬 1: {prompts[0][:120]}...')

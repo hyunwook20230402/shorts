@@ -304,8 +304,8 @@ else:
                   st.write('**원문**')
                   st.text(scene.get('original_text', ''))
 
-                  st.write('**자막/음성** (modern_sentences)')
-                  sentences = scene.get('modern_sentences', [scene.get('modern_text', '')])
+                  st.write('**자막/음성** (원문)')
+                  sentences = [scene.get('original_text', '')]
                   st.text('\n'.join(sentences))
 
                 with col2:

@@ -34,17 +34,17 @@ logger.info(f'edge-tts 음성: {EDGE_TTS_VOICE}')
 
 def get_cache_path(poem_dir: Path, idx: int, suffix: str) -> Path:
   """캐시 경로 생성 (poem_id 기반, 씬 단위)"""
-  return poem_dir / f'step2_scene{idx:02d}{suffix}'
+  return poem_dir / 'step2' / f'scene{idx:02d}{suffix}'
 
 
 def get_sentence_audio_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
   """문장 단위 MP3 경로 생성"""
-  return poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
+  return poem_dir / 'step2' / f'scene{scene_idx:02d}_sent{sent_idx:02d}_audio.mp3'
 
 
 def get_sentence_alignment_path(poem_dir: Path, scene_idx: int, sent_idx: int) -> Path:
   """문장 단위 alignment JSON 경로 생성"""
-  return poem_dir / f'step2_scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
+  return poem_dir / 'step2' / f'scene{scene_idx:02d}_sent{sent_idx:02d}_alignment.json'
 
 
 def load_alignment_from_cache(alignment_path: Path) -> Optional[dict]:
@@ -60,7 +60,7 @@ def load_alignment_from_cache(alignment_path: Path) -> Optional[dict]:
 
 
 def save_alignment_to_cache(alignment_path: Path, alignment_data: dict) -> None:
-  """alignment JSON 저장"""
+  """alignment JSON 저장 (step2/ 폴더 자동 생성)"""
   alignment_path.parent.mkdir(parents=True, exist_ok=True)
   with open(alignment_path, 'w', encoding='utf-8') as f:
     json.dump(alignment_data, f, indent=2, ensure_ascii=False)
@@ -439,7 +439,7 @@ async def generate_all_audio(
   # 테마 기반 TTS 파라미터 로드
   tts_rate = '+0%'
   tts_pitch = '+0Hz'
-  nlp_path = Path(poem_dir) / 'step1_nlp.json'
+  nlp_path = Path(poem_dir) / 'step1' / 'nlp.json'
   if nlp_path.exists():
     try:
       with open(nlp_path, 'r', encoding='utf-8') as f:
@@ -457,40 +457,26 @@ async def generate_all_audio(
   sentence_alignment_paths = []
 
   for scene_idx, scene in enumerate(script_data):
-    sentences = scene.get('modern_sentences', [])
+    sentence_text = scene.get('original_text', '').strip()
 
-    if not sentences:
-      fallback_text = scene.get('modern_text', '').strip()
-      sentences = [fallback_text] if fallback_text else []
-
-    # 1씬=1문장 불변 조건 검증
-    if len(sentences) != 1:
-      logger.warning(f'Scene {scene_idx}: modern_sentences 개수={len(sentences)} (기대값=1)')
-
-    if not sentences:
-      logger.warning(f'Scene {scene_idx}: 문장이 없습니다')
+    if not sentence_text:
+      logger.warning(f'Scene {scene_idx}: original_text가 비어있습니다')
       sentence_audio_paths.append([])
       sentence_alignment_paths.append([])
       continue
 
-    scene_audios, scene_alignments = [], []
-
-    for sent_idx, sentence_text in enumerate(sentences):
-      try:
-        mp3_path, align_path = await generate_sentence_audio(
-          sentence_text, scene_idx, sent_idx, poem_dir,
-          use_cache=use_cache,
-          rate=tts_rate,
-          pitch=tts_pitch,
-        )
-        scene_audios.append(str(mp3_path))
-        scene_alignments.append(str(align_path))
-      except Exception as e:
-        logger.error(f'Scene {scene_idx} Sent {sent_idx} 오디오 생성 실패: {e}')
-        raise
-
-    sentence_audio_paths.append(scene_audios)
-    sentence_alignment_paths.append(scene_alignments)
+    try:
+      mp3_path, align_path = await generate_sentence_audio(
+        sentence_text, scene_idx, 0, poem_dir,
+        use_cache=use_cache,
+        rate=tts_rate,
+        pitch=tts_pitch,
+      )
+      sentence_audio_paths.append([str(mp3_path)])
+      sentence_alignment_paths.append([str(align_path)])
+    except Exception as e:
+      logger.error(f'Scene {scene_idx} 오디오 생성 실패: {e}')
+      raise
 
   logger.info(f'전체 문장 오디오 생성 완료: {sum(len(s) for s in sentence_audio_paths)}개 문장')
   return sentence_audio_paths, sentence_alignment_paths
@@ -566,7 +552,7 @@ if __name__ == '__main__':
     exit(1)
 
   poem_dir = Path(sys.argv[1])
-  nlp_path = poem_dir / 'step1_nlp.json'
+  nlp_path = poem_dir / 'step1' / 'nlp.json'
 
   if not nlp_path.exists():
     logger.error(f'✗ Step 1 NLP 캐시 없음: {nlp_path}')
@@ -575,23 +561,11 @@ if __name__ == '__main__':
   with open(nlp_path, 'r', encoding='utf-8') as f:
     nlp_data = json.load(f)
 
-  # 데이터 구조 판별 및 로드
-  if isinstance(nlp_data, list):
-      # 1. 최상위가 리스트인 경우 ([{...}, {...}])
-      script_data = nlp_data
-  elif isinstance(nlp_data, dict):
-      # 2. 'scenes' 키 안에 데이터가 있는 경우 ({"scenes": [...]})
-      if 'scenes' in nlp_data:
-          script_data = nlp_data['scenes']
-      # 3. 'items' 등 다른 키를 쓰는 경우 대비 (첫 번째 리스트 값을 찾음)
-      else:
-          script_data = next((v for v in nlp_data.values() if isinstance(v, list)), [])
-  else:
-      script_data = []
+  script_data = nlp_data.get('modern_script_data', [])
 
   if not script_data:
-      logger.error(f"✗ 데이터를 찾을 수 없습니다. 파일 내용 예시: {str(nlp_data)[:100]}")
-      exit(1)
+    logger.error(f"✗ modern_script_data 없음. JSON 키 목록: {list(nlp_data.keys())}")
+    exit(1)
 
   logger.info(f'nlp_data 로드 성공: {len(script_data)}개 씬 발견')
 

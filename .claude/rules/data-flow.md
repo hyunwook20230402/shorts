@@ -11,8 +11,7 @@ nlp.json
 ├── dominant_emotion       지배 정서 코드 (예: "E1")
 ├── dominant_emotion_en
 └── modern_script_data[]   씬 배열
-    ├── original_text      원문 행
-    ├── modern_text        현대어 번역
+    ├── original_text      원문 행 (TTS 음성 텍스트 + 자막 텍스트로 직접 사용)
     ├── emotion            씬별 감정 (한국어 단어)
     ├── main_focus         background / character / object
     ├── scene_description  장면 묘사 (영어 키워드)
@@ -26,11 +25,10 @@ nlp.json
 
 | 필드 | 생성 | Step 2 TTS | Step 3 Schedule | Step 4 이미지 | Step 5 BGM | Step 6 영상 |
 |------|------|:---:|:---:|:---:|:---:|:---:|
-| `modern_text` | 번역 LLM | **음성 텍스트** | text 저장 | — | — | **자막 텍스트** |
-| `original_text` | 번역 LLM | — | — | image_prompt 재료 | — | — |
-| `emotion` (씬별) | 번역 LLM | — | — | image_prompt 재료 (조명/색감) | — | — |
-| `main_focus` | 번역 LLM | — | — | pose_type 선택 가이드 | — | — |
-| `scene_description` | 번역 LLM | — | — | image_prompt 재료 (장면 묘사) | — | — |
+| `original_text` | 분석 LLM | **음성 텍스트** | text 저장 | image_prompt 재료 | **원문 컨텍스트** | **자막 텍스트** |
+| `emotion` (씬별) | 분석 LLM | — | — | image_prompt 재료 (조명/색감) | — | — |
+| `main_focus` | 분석 LLM | — | — | pose_type 선택 가이드 | — | — |
+| `scene_description` | 분석 LLM | — | — | image_prompt 재료 (장면 묘사) | — | — |
 | `image_prompt` | 이미지 LLM | — | **스케줄 저장** | **ComfyUI 프롬프트** | — | — |
 | `pose_type` | 이미지 LLM | — | **스케줄 저장** | **ControlNet 스켈레톤** | — | — |
 | `primary_theme` | 테마 LLM | **TTS 속도/피치** | — | — | **BGM 악기/분위기/템포** | **TTS:BGM 볼륨비** |
@@ -45,11 +43,11 @@ nlp.json
 
 ```
 Step 2 (TTS)
-  modern_text          → 음성 텍스트 (직접)
+  original_text        → 음성 텍스트 (직접)
   primary_theme        → TTS 속도/피치 파라미터
 
 Step 3 (Schedule)
-  modern_text          → 자막 text 필드
+  original_text        → 자막 text 필드
   image_prompt         → 스케줄 저장 → Step 4에 전달
   pose_type            → 스케줄 저장 → Step 4에 전달
 
@@ -64,10 +62,10 @@ Step 5 (BGM)
   theme_reasoning      → 테마 판단 근거 (작품별 해석) → GPT BGM 프롬프트
   emotion_reasoning    → 정서 판단 근거 (감정 해석) → GPT BGM 프롬프트
   scene_description    → 장면 묘사 → GPT BGM 프롬프트
-  modern_text          → 현대어 번역 → GPT BGM 프롬프트
+  original_text        → 원문 → GPT BGM 프롬프트
 
 Step 6 (영상)
-  modern_text          → 자막 burn-in 텍스트
+  original_text        → 자막 burn-in 텍스트 (sentence_schedule.json 경유)
   primary_theme        → TTS:BGM 볼륨비 (nlp.json 직접 읽음)
   surface_theme        → 자막 색상/크기/스타일 (nlp.json 직접 읽음)
 ```
@@ -102,5 +100,5 @@ surface_theme ──────────────────────
 
 - **`image_prompt`는 가장 중요한 중간 산출물**: `original_text`, `emotion`, `scene_description`, `dominant_emotion` 4개가 합쳐져 만들어지는 압축 결과물. 여기서 이미지 품질이 결정됨.
 - **테마 이원화 역할 분리**: `surface_theme`은 이미지·자막(시각), `primary_theme`은 TTS·BGM·볼륨(청각)에 각각 특화.
-- **`modern_text`는 가장 직접적인 필드**: TTS 음성 텍스트와 자막 텍스트 둘 다 이 값을 그대로 사용. 번역 품질이 영상 전반에 직결.
+- **`original_text`는 가장 직접적인 필드**: TTS 음성 텍스트와 자막 텍스트 둘 다 이 값을 그대로 사용. 원문이 영상 전반에 직결. 1씬 = 1행 = 1문장 불변 조건 자동 보장.
 - **`dominant_emotion`은 청각(BGM)과 시각(이미지 색감) 양쪽에 간접 영향**.
