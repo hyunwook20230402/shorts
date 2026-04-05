@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from step0_ocr import extract_text_from_image
+from step0_ocr import extract_text_from_images
 from step1_nlp import process_nlp
 from step2_tts import generate_all_audio as elevenlabs_generate_all_v3
 from step3_scheduler import build_sentence_schedules
@@ -107,21 +107,21 @@ def _get_poem_dir(task: TaskStatus) -> Path:
   return poem_dir
 
 
-async def run_step0(task_id: str, image_path: str, use_cache: bool = True) -> str:
-  """Step 0: OCR"""
+async def run_step0(task_id: str, image_paths: list[str], use_cache: bool = True) -> str:
+  """Step 0: OCR (N장 이미지 순서대로 병합)"""
   task = task_status_dict[task_id]
   task.current_step = 0
   task.status = StepStatusEnum.running
   task.status_message = 'OCR 처리 중...'
   task.updated_at = datetime.now()
   task_status_dict[task_id] = task
-  logger.info(f'[Step 0] 시작: task_id={task_id}, poem_id={task.poem_id}')
+  logger.info(f'[Step 0] 시작: task_id={task_id}, poem_id={task.poem_id}, 이미지={len(image_paths)}장')
 
   try:
     poem_dir = _get_poem_dir(task)
-    logger.info(f'[Step 0] OCR 함수 호출 중: {image_path}')
+    logger.info(f'[Step 0] OCR 함수 호출 중: {image_paths}')
     # 동기 함수를 직접 호출 (스레드풀 사용 안 함 - 이벤트 루프 데드락 방지)
-    result = extract_text_from_image(image_path, poem_dir, use_cache=use_cache)
+    result = extract_text_from_images(image_paths, poem_dir, use_cache=use_cache)
     logger.info(f'[Step 0] OCR 완료: {len(result)}자')
 
     task = task_status_dict[task_id]
@@ -159,7 +159,7 @@ async def run_step1(task_id: str, ocr_text: str, use_cache: bool = True) -> tupl
     script_data, image_prompts = process_nlp(ocr_text, poem_dir, task_id=task_id, use_cache=use_cache)
 
     # NLP 결과 캐시 경로
-    nlp_path = poem_dir / 'step1_nlp.json'
+    nlp_path = poem_dir / 'step1' / 'nlp.json'
 
     # 파일 존재 검증
     if not nlp_path.exists():
@@ -389,14 +389,17 @@ async def run_step6_merge(
 
 
 async def run_pipeline_async(task_id: str, start_step: int = 0, end_step: int = 6):
-  """Step 0~5 순차 실행 (v2 파이프라인)"""
+  """Step 0~6 순차 실행 (v2 파이프라인)"""
   task = task_status_dict[task_id]
-  image_path = task.uploaded_image_path
+  # 다중 이미지 지원: uploaded_image_paths 우선, 없으면 단일 경로 fallback
+  image_paths = task.uploaded_image_paths or (
+    [task.uploaded_image_path] if task.uploaded_image_path else []
+  )
 
   try:
     # Step 0: OCR
     if start_step <= 0 <= end_step:
-      ocr_text = await run_step0(task_id, image_path)
+      ocr_text = await run_step0(task_id, image_paths)
     else:
       ocr_text = task_status_dict[task_id].ocr_text
 

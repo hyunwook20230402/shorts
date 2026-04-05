@@ -16,7 +16,7 @@ nlp.json
     ├── main_focus         background / character / object
     ├── scene_description  장면 묘사 (영어 키워드)
     ├── image_prompt       Step 1 이미지 LLM 출력 (최종 ComfyUI 프롬프트)
-    └── pose_type          Step 1 이미지 LLM 출력 (ControlNet 포즈 분류)
+    └── pose_type          Step 1 이미지 LLM 출력 (image_prompt 구도 가이드, 18종)
 ```
 
 ---
@@ -30,7 +30,7 @@ nlp.json
 | `main_focus` | 분석 LLM | — | — | pose_type 선택 가이드 | — | — |
 | `scene_description` | 분석 LLM | — | — | image_prompt 재료 (장면 묘사) | — | — |
 | `image_prompt` | 이미지 LLM | — | **스케줄 저장** | **ComfyUI 프롬프트** | — | — |
-| `pose_type` | 이미지 LLM | — | **스케줄 저장** | **ControlNet 스켈레톤** | — | — |
+| `pose_type` | 이미지 LLM | — | **스케줄 저장** | **image_prompt 구도 가이드 (간접)** | — | — |
 | `primary_theme` | 테마 LLM | **TTS 속도/피치** | — | — | **BGM 악기/분위기/템포** | **TTS:BGM 볼륨비** |
 | `surface_theme` | 테마 LLM | — | — | **LoRA강도/CFG + 색감 키워드** | — | **자막 색상/크기** |
 | `dominant_emotion` | 테마 LLM | — | — | emotion_tone → image_prompt 재료 | **정서 힌트 → GPT BGM 프롬프트** | — |
@@ -52,9 +52,8 @@ Step 3 (Schedule)
   pose_type            → 스케줄 저장 → Step 4에 전달
 
 Step 4 (이미지)
-  image_prompt         → ComfyUI 양성 프롬프트
-  pose_type            → ControlNet 스켈레톤 구도
-  surface_theme        → LoRA 강도/CFG 스케일 + 색감 키워드 append (nlp.json 직접 읽음)
+  image_prompt         → ComfyUI Flux 양성 프롬프트
+  surface_theme        → 색감 키워드 append (nlp.json 직접 읽음)
 
 Step 5 (BGM)
   primary_theme        → 악기/분위기/템포 힌트 → GPT BGM 프롬프트
@@ -78,20 +77,20 @@ Step 6 (영상)
 
 ```
 original_text     ─┐
-emotion (씬별)    ─┤  → [Step 1 이미지 LLM]  → image_prompt ──→ [ComfyUI] → PNG
-scene_description ─┤                          pose_type    ──→ [ControlNet] ↗
-dominant_emotion  ─┘  (emotion_tone 변환 후)                              ↑
-                                                                          │
-surface_theme ───────────────────────────── theme_color append ───────────┘
+emotion (씬별)    ─┤  → [Step 1 이미지 LLM]  → image_prompt ──→ [ComfyUI Flux] → PNG
+scene_description ─┤   (pose_type이 구도 가이드)                              ↑
+dominant_emotion  ─┘  (emotion_tone 변환 후)                                  │
+                                                                              │
+surface_theme ───────────────────────────── theme_color append ───────────────┘
 ```
 
 | 순위 | 필드 | 역할 | 영향 강도 |
 |------|------|------|---------|
-| 1 | `image_prompt` | ComfyUI 양성 프롬프트 그 자체 | ★★★★★ |
+| 1 | `image_prompt` | ComfyUI Flux 양성 프롬프트 그 자체 | ★★★★★ |
 | 2 | `original_text` | image_prompt 핵심 주제 재료 | ★★★★☆ |
-| 3 | `pose_type` | ControlNet 스켈레톤 구도 | ★★★★☆ |
+| 3 | `pose_type` | image_prompt 생성 시 구도/자세 가이드 (간접) | ★★★☆☆ |
 | 4 | `scene_description` | image_prompt 장면 묘사 재료 | ★★★☆☆ |
-| 5 | `surface_theme` | LoRA/CFG + 색감 키워드 append | ★★★☆☆ |
+| 5 | `surface_theme` | 색감 키워드 append | ★★★☆☆ |
 | 6 | `dominant_emotion` | emotion_tone → 조명/색감 지침 | ★★☆☆☆ |
 
 ---

@@ -25,7 +25,8 @@ class TaskStatus(BaseModel):
   poem_id: str | None = None  # "poem_01", "poem_02" 등
 
   # 각 Step 결과 경로
-  uploaded_image_path: str | None = None
+  uploaded_image_path: str | None = None   # 하위호환: 첫 번째 이미지
+  uploaded_image_paths: list[str] = []     # N장 이미지 경로 리스트
   ocr_text: str | None = None
   nlp_cache_path: str | None = None
   image_paths: list[str] = []  # v2에서 미사용 (하위호환성 유지)
@@ -48,8 +49,9 @@ class TaskStatus(BaseModel):
 class UploadResponse(BaseModel):
   """이미지 업로드 응답"""
   task_id: str
-  image_path: str
-  poem_id: str  # 부여된 시 번호
+  image_path: str           # 하위호환: 첫 번째 이미지
+  image_paths: list[str]    # N장 이미지 경로 리스트
+  poem_id: str              # 부여된 시 번호
   status: str = 'uploaded'
 
 

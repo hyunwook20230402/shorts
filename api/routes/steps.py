@@ -65,9 +65,12 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
 
   task = task_status_dict[request.task_id]
-  image_path = task.uploaded_image_path
+  # 다중 이미지 우선, 없으면 단일 이미지 fallback
+  image_paths = task.uploaded_image_paths or (
+    [task.uploaded_image_path] if task.uploaded_image_path else []
+  )
 
-  if not image_path:
+  if not image_paths:
     raise HTTPException(status_code=400, detail='이미지가 업로드되지 않았습니다')
 
   # 하위 스텝 캐시 무효화 (v2: Step 2부터 시작)
@@ -87,8 +90,8 @@ async def run_step0_endpoint(request: StepRequest) -> dict:
     except Exception:
       pass
     try:
-      logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}')
-      asyncio.run(run_step0(request.task_id, image_path, request.use_cache))
+      logger.info(f'[EXECUTOR] Step 0 시작: task_id={request.task_id}, 이미지={len(image_paths)}장')
+      asyncio.run(run_step0(request.task_id, image_paths, request.use_cache))
       logger.info(f'[EXECUTOR] Step 0 완료: status={task_status_dict[request.task_id].status}')
     except Exception as e:
       logger.error(f'[EXECUTOR] Step 0 오류: {e}', exc_info=True)

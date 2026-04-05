@@ -18,7 +18,7 @@ memory: project
 - 데이터베이스: Notion API (Notion Database)
 - Vision/Text LLM: HCX-005 (CLOVA Studio, Step 0-1 OCR/번역/테마/프롬프트) / gpt-4o-mini (BGM 프롬프트)
 - 음성: edge-tts (한국어, 무료 — ko-KR-SunHiNeural)
-- 이미지: ComfyUI SD 1.5 정지이미지 (국풍 LoRA + IP-Adapter)
+- 이미지: ComfyUI Flux.1-dev FP8 정지이미지 (국풍 LoRA)
 - BGM: Stable Audio (stabilityai/stable-audio-open-1.0)
 - 자막: PIL Image 기반 (NanumSquare EB + 흰색 + 검은 외곽선, Burn-in)
 - 최종 합성: MoviePy + FFmpeg
@@ -29,7 +29,7 @@ memory: project
 - Step 1: NLP (번역 + 씬 분할 + 이중 테마/정서 분류 + 이미지 프롬프트 + DB 로깅)
 - Step 2: 음성+타임스탬프 (edge-tts로 문장별 MP3 + alignment JSON 생성)
 - Step 3: 문장 스케줄링 (문장 단위 duration/image_prompt/audio_path 매핑)
-- Step 4: 정지이미지 (ComfyUI SD 1.5 + 국풍 LoRA + IP-Adapter로 문장별 PNG)
+- Step 4: 정지이미지 (ComfyUI Flux.1-dev FP8 + 국풍 LoRA로 문장별 PNG)
 - Step 5: BGM 생성 (Stable Audio → 테마/정서 기반 배경음악 WAV)
 - Step 6: 최종 병합 (이미지+오디오+자막+BGM 슬라이드쇼, 1080×1920, 30fps)
 

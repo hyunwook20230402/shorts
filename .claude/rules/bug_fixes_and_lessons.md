@@ -98,39 +98,17 @@ global_end = sentence.end + cumulative_time
 
 ---
 
-## 5. AnimateDiff VRAM 보호 규칙
+## 5. Flux.1-dev FP8 전환 (2026-04-05)
 
-**제약**: RTX 4070 (8GB) 제한으로 한 번에 긴 영상 생성 불가.
+SD 1.5 + ControlNet + IP-Adapter 레거시 코드를 전면 제거하고 Flux.1-dev FP8을 유일한 이미지 생성 경로로 확정.
 
-**해결책**: 청크 분할 렌더링
-```
-총 프레임 = total_duration × FPS(10)
-CHUNK_SIZE = 16 (최대 배치)
-if 총 프레임 > CHUNK_SIZE:
-  → 16프레임씩 분할 렌더링 후 ffmpeg concat
-```
+**제거된 항목**:
+- SD15_CHECKPOINT, ControlNet, IP-Adapter 관련 환경변수/함수/워크플로우 (~800줄)
+- `notebook/cache/pose_refs/` 스켈레톤 PNG 디렉토리
+- `USE_FLUX` / `USE_CONTROLNET` 분기 플래그
 
-**추가 설정**:
-- `COMFYUI_MAX_WAIT = 1200` (초, 기본 600 → 1200으로 상향)
-- SD 1.5 + LoRA + AnimateDiff는 v1 FLUX보다 렌더링 시간 증가
-
----
-
-## 6. v2 호환성 규칙
-
-**캐시 호환성**:
-- 기존 v1 task 상태가 캐시에 남아 있을 경우, Pydantic `default=[]`|`None` 처리로 역직렬화 오류 없음
-- v1 task로 v2 step 실행 시: "Step 2를 먼저 실행하세요" 오류 자연 처리됨
-
-**폴더 구조**:
-- `cache/step2/`: v1은 이미지 PNG, v2는 오디오 MP3 + alignment JSON → 파일명 패턴 다르므로 충돌 없음
-- `cache/step3/`: v2 신규 폴더 (스케줄)
-- `cache/step4/`: v1은 자막 SRT, v2는 AnimateDiff MP4 → 파일명 패턴 다름
-
-**기존 파일 유지**:
-- `step2_vision.py`, `step3_audio.py`, `step4_subtitle.py`: 삭제하지 않고 유지
-  - 롤백 시 `pipeline_runner.py` import만 되돌리면 됨
-  - CLI 직접 실행 호환성 보존
+**pose_type 확장**: 기존 9종 → 18종 (expressive, gazing_distant, riding_horse 등 추가)
+- `expressive`: 구체적 신체 동작 없이 감정이 중심인 장면 (화자의 주장/선언/감정토로)
 
 ---
 
