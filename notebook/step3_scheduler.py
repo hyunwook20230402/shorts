@@ -101,6 +101,7 @@ def build_sentence_schedules(
             'audio_path': audio_path,
             'pose_type': scene.get('pose_type', 'standing_single'),
             'composition': scene.get('composition', 'wide_establishing'),
+            'main_focus': scene.get('main_focus', ['background']),
         })
 
     final_schedule = {

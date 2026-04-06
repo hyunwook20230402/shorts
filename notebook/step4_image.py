@@ -306,13 +306,30 @@ def download_generated_still(prompt_id: str) -> Optional[Path]:
     return None
 
 
-FLUX_STYLE_SUFFIX = (
+FLUX_STYLE_SUFFIX_CHARACTER = (
   'traditional korean hanbok, joseon dynasty clothing, '
   'traditional korean accessories, korean traditional hair ornaments, '
   'gat hat, binyeo hairpin, traditional korean shoes, '
   'traditional east asian robes, ink wash painting style, guofeng, '
   'no modern clothing, no coat, no jacket, no western shoes, no sneakers'
 )
+
+FLUX_STYLE_SUFFIX_NO_CHARACTER = (
+  'traditional east asian scenery, ink wash painting style, guofeng, '
+  'no modern objects, no western architecture, no electricity, '
+  'no people, no humans, no figures, no characters'
+)
+
+COMPOSITION_KEYWORDS = {
+  'back_view': 'viewed from behind, back of the figure facing the camera',
+  'front_closeup': 'close-up front view, face and upper body filling the frame',
+  'side_profile': 'side profile view, silhouette against the background',
+  'over_shoulder': 'over-the-shoulder shot, viewing from behind one figure',
+  'bird_eye': "bird's eye view, looking straight down from above",
+  'low_angle': 'low angle shot, looking up from below',
+  'wide_establishing': 'wide establishing shot, vast landscape, distant view',
+  'dutch_tilt': 'dutch angle, tilted camera frame, dramatic diagonal composition',
+}
 
 
 def generate_all_images(
@@ -369,8 +386,22 @@ def generate_all_images(
     base_prompt = sched['image_prompt']
     prompt_text = f'{base_prompt}, {theme_color}' if theme_color else base_prompt
 
-    # Flux 포지티브에 전통 의상/소품 키워드 강제 추가
-    flux_prompt = f'{prompt_text}, {FLUX_STYLE_SUFFIX}'
+    # composition 구도 키워드 강제 주입
+    comp = sched.get('composition', 'wide_establishing')
+    comp_keywords = COMPOSITION_KEYWORDS.get(comp, '')
+    if comp_keywords:
+      prompt_text = f'{prompt_text}, {comp_keywords}'
+
+    # main_focus 기반 스타일 서픽스 분기
+    main_focus = sched.get('main_focus', ['background'])
+    if isinstance(main_focus, str):
+      main_focus = [main_focus]
+    has_character = 'character' in main_focus
+
+    if has_character:
+      flux_prompt = f'{prompt_text}, {FLUX_STYLE_SUFFIX_CHARACTER}'
+    else:
+      flux_prompt = f'{prompt_text}, {FLUX_STYLE_SUFFIX_NO_CHARACTER}'
 
     logger.info(f'  - [{i+1}/{len(schedules)}] ComfyUI Flux 호출 중: {out_name}')
 
