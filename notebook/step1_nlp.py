@@ -600,15 +600,31 @@ def call_hcx005_image_prompt(
         prompt_lines.append(line)
     prompt_text = prompt_lines[0] if prompt_lines else ''
 
-    # 후처리: 프롬프트 본문에 남은 메타 텍스트 잔여물 제거
-    # 예: "...reflection. on capturing the entire expanse" ← "The composition focuses on..." 잔해
+    # 후처리: 프롬프트 본문에 남은 메타 텍스트 잔여물 제거 + 값 복구
+    # 케이스 1: "...yearning. Pose Type: standing_single Composition: back_view, Korean..."
+    #   → pose_type/composition 값을 추출하여 빈 값이면 채워넣고, 텍스트에서 제거
+    inline_pose = re.search(r'[Pp]ose\s*[_ ]?[Tt]ype:?\s*(\w+)', prompt_text)
+    if inline_pose:
+      candidate = inline_pose.group(1).strip()
+      if candidate in VALID_POSE_TYPES and not pose_type:
+        pose_type = candidate
+    inline_comp = re.search(r'[Cc]omposition:?\s*(\w+)', prompt_text)
+    if inline_comp:
+      candidate = inline_comp.group(1).strip()
+      if candidate in VALID_COMPOSITIONS and composition == 'wide_establishing':
+        composition = candidate
+
+    # 케이스 2: "The composition focuses on..." 자연어 잔해
     prompt_text = re.sub(
       r'\.\s*(?:The\s+)?(?:composition|shot|camera)\s+\w+.*$',
       '.', prompt_text, flags=re.IGNORECASE
     ).strip()
-    # "Pose type: object." 같은 잔여물도 제거
+    # "Pose Type: standing_single Composition: back_view" 라벨 잔여물 제거
     prompt_text = re.sub(
-      r',?\s*[Pp]ose\s*[_ ]?type:?\s*\w+\.?', '', prompt_text
+      r',?\s*[Pp]ose\s*[_ ]?[Tt]ype:?\s*\w+\.?', '', prompt_text
+    ).strip().rstrip(',').strip()
+    prompt_text = re.sub(
+      r',?\s*[Cc]omposition:?\s*\w+\.?', '', prompt_text
     ).strip().rstrip(',').strip()
 
     # main_focus에 "character"가 없으면 LLM이 지시를 어겼더라도 강제 무효화
