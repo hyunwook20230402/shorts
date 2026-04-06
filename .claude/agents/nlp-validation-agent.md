@@ -65,7 +65,8 @@ Step 1 (HCX-005 번역 + 씬 분할 + 테마/정서 분류 + 이미지 프롬프
 - `main_focus` — background / character / object
 - `scene_description` — 장면 묘사 (영어 키워드)
 - `image_prompt` — 영어 이미지 프롬프트
-- `pose_type` — 포즈 타입
+- `pose_type` — 포즈 타입 (인물 없으면 빈 문자열)
+- `composition` — 카메라 구도 (모든 씬 필수, 8종)
 
 **주의: `modern_text`와 씬별 `dominant_emotion` 코드는 v2에서 제거됨**
 - `modern_text`: 의도적으로 제거. `original_text` 원문이 TTS/자막에 직접 사용됨
@@ -142,6 +143,18 @@ OCR 결과 줄 수와 NLP 씬 수를 비교합니다.
 - 원문에 인물 행동이 명확한데 빈 문자열이면 **경고(WARNING)**
 - `expressive`가 전체 씬의 70% 초과이면 **경고(WARNING)** (다양성 부족)
 
+### 7. composition 적절성 검증 (Composition Validation)
+
+**8종 허용 composition:**
+`back_view`, `front_closeup`, `side_profile`, `over_shoulder`, `bird_eye`, `low_angle`, `wide_establishing`, `dutch_tilt`
+
+**composition 검증 기준:**
+- 위 8종 중 하나이면 **정상**
+- 빈 문자열이면 **경고(WARNING)** — composition은 모든 씬 필수
+- 위 목록에 없는 임의 문자열이면 **경고(WARNING)**
+- 동일 composition이 전체 씬의 70% 초과이면 **경고(WARNING)** (다양성 부족)
+- image_prompt에 해당 구도 관련 키워드가 포함되어 있는지 확인 (예: front_closeup인데 "close-up" 키워드 없으면 경고)
+
 **테마 소품 남용 탐지:**
 - 원문에 "궁궐", "palace", "temple"이 없는데 프롬프트에 포함되면 경고
 - 테마 스타일 가이드 키워드가 원문 내용보다 이미지 묘사를 지배하면 경고
@@ -207,7 +220,7 @@ REQUIRED_TOP_FIELDS = [
 REQUIRED_SCENE_FIELDS = [
   'scene_index', 'original_text',
   'emotion', 'main_focus', 'scene_description',
-  'image_prompt', 'pose_type',
+  'image_prompt', 'pose_type', 'composition',
 ]
 # 주의: modern_text, negative_prompt, 씬별 dominant_emotion E코드는 v2에서 없음
 # pose_type은 빈 문자열도 허용 (인물 없는 장면)

@@ -100,6 +100,7 @@ def build_sentence_schedules(
             'duration': duration,
             'audio_path': audio_path,
             'pose_type': scene.get('pose_type', 'standing_single'),
+            'composition': scene.get('composition', 'wide_establishing'),
         })
 
     final_schedule = {
