@@ -5,6 +5,7 @@ Step 4: ComfyUI Flux.1-dev FP8로 씬별 정지 이미지 생성
 import json
 import logging
 import os
+import random
 import shutil
 import time
 from pathlib import Path
@@ -33,7 +34,7 @@ FLUX_UNET = os.getenv('FLUX_UNET', 'flux1-dev-fp8.safetensors')
 FLUX_LORA_NAME = os.getenv('FLUX_LORA_NAME', 'GuoFeng5-FLUX.1-Lora.safetensors')
 FLUX_LORA_STRENGTH = float(os.getenv('FLUX_LORA_STRENGTH', '0.8'))
 FLUX_STEPS = int(os.getenv('FLUX_STEPS', '20'))
-FLUX_GUIDANCE = float(os.getenv('FLUX_GUIDANCE', '3.5'))
+FLUX_GUIDANCE = float(os.getenv('FLUX_GUIDANCE', '4.0'))
 
 MAX_RETRIES = 3
 
@@ -76,6 +77,7 @@ def build_flux_workflow(
   lora_strength: float = FLUX_LORA_STRENGTH,
   steps: int = FLUX_STEPS,
   guidance: float = FLUX_GUIDANCE,
+  seed: int = -1,
 ) -> dict:
   """
   Flux.1-dev FP8 워크플로우 (네거티브 프롬프트 없음).
@@ -160,7 +162,7 @@ def build_flux_workflow(
     },
     '9': {
       'class_type': 'RandomNoise',
-      'inputs': {'noise_seed': 42}
+      'inputs': {'noise_seed': seed if seed >= 0 else random.randint(0, 2**31 - 1)}
     },
     '10': {
       'class_type': 'BasicGuider',
@@ -309,15 +311,16 @@ def download_generated_still(prompt_id: str) -> Optional[Path]:
 FLUX_STYLE_SUFFIX_CHARACTER = (
   'traditional korean hanbok, joseon dynasty clothing, '
   'traditional korean accessories, korean traditional hair ornaments, '
-  'gat hat, binyeo hairpin, traditional korean shoes, '
+  'gat hat, binyeo hairpin, '
+  'traditional straw sandals, wooden clogs, leather shoes, '
   'traditional east asian robes, ink wash painting style, guofeng, '
-  'no modern clothing, no coat, no jacket, no western shoes, no sneakers'
+  'ancient joseon era attire only, historical garments'
 )
 
 FLUX_STYLE_SUFFIX_NO_CHARACTER = (
   'traditional east asian scenery, ink wash painting style, guofeng, '
-  'no modern objects, no western architecture, no electricity, '
-  'no people, no humans, no figures, no characters'
+  'uninhabited landscape, empty scenery, desolate nature, '
+  'still life of nature, untouched wilderness'
 )
 
 COMPOSITION_KEYWORDS = {
@@ -386,17 +389,21 @@ def generate_all_images(
     base_prompt = sched['image_prompt']
     prompt_text = f'{base_prompt}, {theme_color}' if theme_color else base_prompt
 
-    # composition 구도 키워드 강제 주입
-    comp = sched.get('composition', 'wide_establishing')
-    comp_keywords = COMPOSITION_KEYWORDS.get(comp, '')
-    if comp_keywords:
-      prompt_text = f'{prompt_text}, {comp_keywords}'
-
-    # main_focus 기반 스타일 서픽스 분기
+    # main_focus 파싱 (composition 방어에 필요)
     main_focus = sched.get('main_focus', ['background'])
     if isinstance(main_focus, str):
       main_focus = [main_focus]
     has_character = 'character' in main_focus
+
+    # composition 구도 키워드 강제 주입
+    comp = sched.get('composition', 'wide_establishing')
+    # 비인물 씬에서 인물 구도 키워드 사용 방지 → wide_establishing 폴백
+    figure_comps = {'back_view', 'front_closeup', 'side_profile', 'over_shoulder'}
+    if not has_character and comp in figure_comps:
+      comp = 'wide_establishing'
+    comp_keywords = COMPOSITION_KEYWORDS.get(comp, '')
+    if comp_keywords:
+      prompt_text = f'{prompt_text}, {comp_keywords}'
 
     if has_character:
       flux_prompt = f'{prompt_text}, {FLUX_STYLE_SUFFIX_CHARACTER}'
