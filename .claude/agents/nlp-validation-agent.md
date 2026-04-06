@@ -1,7 +1,7 @@
 ---
 name: nlp-validation-agent
 description: >-
-  Use this agent after Step 1 (NLP) completes, to validate that the NLP output correctly reflects the source OCR text. Checks scene count vs. OCR line count, theme/emotion classification plausibility, modern translation completeness, and image prompt quality. Flags issues before Step 2 TTS begins.
+  Use this agent after Step 1 (NLP) completes, to validate that the NLP output correctly reflects the source OCR text. Checks scene count vs. OCR line count, theme/emotion classification plausibility, original_text-OCR alignment, image prompt quality, pose_type/composition validity. Flags issues before Step 2 TTS begins.
 
   <example>
   Context: Step 1 NLP has completed for poem_01.
@@ -134,8 +134,8 @@ OCR 결과 줄 수와 NLP 씬 수를 비교합니다.
 - 인물이 없는 자연/배경 장면은 **빈 문자열(`""`)이 정상** — 오류로 처리하지 않음
 - 빈 값 = landscape 또는 object 중심 장면으로 해석
 
-**18종 허용 pose_type:**
-`expressive`, `standing_single`, `standing_confrontation`, `sitting_scholar`, `walking`, `bowing`, `gazing_distant`, `riding_horse`, `fighting`, `praying`, `working`, `dancing`, `pointing`, `embracing`, `kneeling`, `reading`, `writing`, `landscape_only`
+**18종 허용 pose_type (step1_nlp.py VALID_POSE_TYPES와 동일):**
+`prone`, `kneeling`, `standing_single`, `standing_confrontation`, `group_labor`, `group_celebration`, `sitting_scholar`, `walking_journey`, `embrace_grief`, `gazing_distant`, `riding_horse`, `dancing`, `plowing_farming`, `boating`, `fishing_resting`, `playing_instrument`, `archery_martial`, `expressive`
 
 **pose_type 검증 기준:**
 - 위 18종 중 하나이거나 빈 문자열이면 **정상**
@@ -154,6 +154,19 @@ OCR 결과 줄 수와 NLP 씬 수를 비교합니다.
 - 위 목록에 없는 임의 문자열이면 **경고(WARNING)**
 - 동일 composition이 전체 씬의 70% 초과이면 **경고(WARNING)** (다양성 부족)
 - image_prompt에 해당 구도 관련 키워드가 포함되어 있는지 확인 (예: front_closeup인데 "close-up" 키워드 없으면 경고)
+
+### 8. 메타 텍스트 혼입 검증 (Meta Text Contamination)
+
+image_prompt 본문에 LLM 메타 지시문이 혼입되었는지 검증합니다.
+
+**금지 패턴 (image_prompt에 포함되면 경고):**
+- `"composition:"`, `"pose_type:"`, `"Pose type:"` 같은 라벨 텍스트
+- `"The composition focuses on..."`, `"This shot captures..."` 같은 메타 설명 문장
+- `"camera angle"`, `"shot type"` 같은 메타 용어
+- 불완전 문장 (마침표 뒤에 소문자로 시작하는 문장 파편, 예: `. on capturing the...`)
+
+**판정 기준:**
+- 위 패턴 발견 시 **경고(WARNING)** — 파싱 로직 또는 LLM 프롬프트 개선 필요
 
 **테마 소품 남용 탐지:**
 - 원문에 "궁궐", "palace", "temple"이 없는데 프롬프트에 포함되면 경고
