@@ -6,11 +6,13 @@
 # 13개 테마 카탈로그
 THEME_CATALOG: dict[str, dict[str, str]] = {
   "A": {"ko": "강호자연", "en": "gangho_nature", "desc": "자연 속 한가로운 삶, 풍류"},
-  "B": {"ko": "연군", "en": "yearning_for_king", "desc": "임금에 대한 그리움, 잊혀짐에 대한 원망 (유배/파직 후)"},
+  "B1": {"ko": "연군/그리움", "en": "yearning_for_king_longing", "desc": "임금이 그립고 보고 싶은 아련한 마음, 유배/파직 후의 그리움"},
+  "B2": {"ko": "연군/원망", "en": "yearning_for_king_resentment", "desc": "임금의 변심/냉대/잊혀짐에 대한 차가운 원망"},
   "C": {"ko": "충절/우국", "en": "loyalty_patriotism", "desc": "변함없는 충성, 나라 걱정"},
   "D": {"ko": "유배", "en": "exile", "desc": "유배지의 한과 억울함"},
   "E": {"ko": "애정", "en": "love", "desc": "남녀 간 사랑, 상사의 정"},
-  "F": {"ko": "이별의 정한", "en": "farewell_sorrow", "desc": "이별의 슬픔, 배신에 대한 원망, 기다림, 재회 기원"},
+  "F1": {"ko": "이별/그리움", "en": "farewell_longing", "desc": "떠난 이를 기다리는 슬픔, 재회 기원, 아련한 그리움"},
+  "F2": {"ko": "이별/원망", "en": "farewell_resentment", "desc": "배신감, 변심에 대한 쓸쓸한 원망"},
   "G": {"ko": "교훈/도학", "en": "moral_teaching", "desc": "유교 윤리 덕목, 교화"},
   "H": {"ko": "풍자/해학", "en": "satire_humor", "desc": "사회 모순 비판, 웃음"},
   "I": {"ko": "무상/탄로", "en": "impermanence", "desc": "세월의 덧없음, 늙음 한탄"},
@@ -85,8 +87,13 @@ def get_theme_classification_prompt() -> str:
 
   prompt = f"""## 테마/정서 분류 (3단계 순서대로 판단)
 
-### 테마 카탈로그 (13개)
+### 테마 카탈로그 (15개)
 {catalog_str}
+
+⚠️ B1/B2, F1/F2 세분화 규칙:
+- B1(연군/그리움) vs B2(연군/원망): 임금이 보고 싶고 아련하면 B1, 임금의 변심·냉대를 원망하면 B2
+- F1(이별/그리움) vs F2(이별/원망): 떠난 이를 기다리고 재회 기원이면 F1, 배신감·변심 원망이면 F2
+- B vs F 구분: 신하→임금 관계이면 B1/B2, 남녀 이별이면 F1/F2
 
 ---
 
@@ -94,7 +101,8 @@ def get_theme_classification_prompt() -> str:
 시를 처음 읽었을 때 시적 화자가 처한 상황, 묘사된 장면이 무엇인지 고릅니다.
 제목이나 작가 정보 없이 원문 텍스트만 보고 판단하세요.
 
-예) "떠난 임을 기다리는 여인의 한탄" → F (이별의 정한)
+예) "떠난 임을 기다리며 눈물 흘리는 여인" → F1 (이별/그리움)
+예) "변심한 상대를 원망하는 한탄" → F2 (이별/원망)
 예) "자연 속에서 한가로이 노닌다" → A (강호자연)
 예) "나라를 걱정하며 죽음도 불사하겠다" → C (충절/우국)
 
@@ -104,16 +112,17 @@ def get_theme_classification_prompt() -> str:
 자연을 빌려 유배의 한을 표현하는 경우가 많습니다.
 
 판단 규칙:
-- 화자가 여성이지만 실제로는 신하가 임금을 그리는 내용 → primary=B (연군)
+- 화자가 여성이지만 실제로는 신하가 임금을 그리는 내용 → primary=B1 또는 B2
 - 임금을 향한 충성 의지 표현 → primary=C (충절)
 - 유배지 고난 묘사 → primary=D (유배)
 - 표면과 진심이 같으면 surface와 동일 코드 사용
 
 혼동 방지:
-- 연군(B) vs 이별(F): 신하→임금 관계이면 B, 남녀 이별이면 F
-- 연군(B) vs 애정(E): 임금 그리움이면 B, 남녀 사랑 자체이면 E
-- 충절(C) vs 연군(B): 충성 의지·결의이면 C, 임금 그리움·잊혀짐이면 B
-- 유배(D) vs 연군(B): 유배지 고난·억울함이면 D, 임금 그리움이면 B
+- B1(연군/그리움) vs F1(이별/그리움): 신하→임금이면 B1, 남녀 이별이면 F1
+- B2(연군/원망) vs F2(이별/원망): 신하→임금이면 B2, 남녀 이별이면 F2
+- B1/B2 vs 애정(E): 임금 그리움/원망이면 B, 남녀 사랑 자체이면 E
+- 충절(C) vs 연군(B1/B2): 충성 의지·결의이면 C, 임금 그리움·잊혀짐이면 B
+- 유배(D) vs 연군(B1/B2): 유배지 고난·억울함이면 D, 임금 그리움이면 B
 
 ### [3단계] dominant_emotion — 작품 전체 감정선 (테마와 독립 판단)
 테마에 관계없이 작품이 전달하는 지배적 감정을 고릅니다.
@@ -138,9 +147,9 @@ def get_theme_classification_prompt() -> str:
 
 **예시 1 — 원가/연군류** (surface≠primary, 원망이 핵심)
 원문 발췌: "질 좋은 잣이 가을에도 떨어지지 않건만, 낯이 변해버리신 겨울이여"
-→ theme_reasoning: "표면적으로는 변심한 상대를 원망하는 이별의 한이나, 실제 작가는 자신을 잊은 임금을 향해 쓴 연군시"
-→ surface_theme: F (이별의 정한)
-→ primary_theme: B (연군)
+→ theme_reasoning: "표면적으로는 변심한 상대를 원망하는 이별의 한이나, 실제 작가는 자신을 잊은 임금을 향해 쓴 연군시. 변심·원망이 핵심이므로 원망 계열(F2/B2)"
+→ surface_theme: F2 (이별/원망)
+→ primary_theme: B2 (연군/원망)
 → emotion_reasoning: "잣나무의 변치 않음 vs 변해버린 임금의 마음을 대조하여 배신감을 극대화. 차갑고 쓴 원망이 지배적"
 → dominant_emotion: E2 (원망/차가움)
 
@@ -160,13 +169,21 @@ def get_theme_classification_prompt() -> str:
 → emotion_reasoning: "죽어도 변치 않겠다는 굳건한 결의. 무겁고 비장한 분위기"
 → dominant_emotion: E3 (비장/결연)
 
+**예시 4 — 연군/그리움류** (그리움이 핵심)
+원문 발췌: "임이시여 다시 한번 돌아봐 주소서, 고운 님을 그리워 웁나이다"
+→ theme_reasoning: "임금을 향한 아련한 그리움이 표면에도 드러나고, 진심도 동일. 변심 원망이 아닌 보고 싶은 마음이 핵심"
+→ surface_theme: B1 (연군/그리움)
+→ primary_theme: B1 (연군/그리움)
+→ emotion_reasoning: "임금을 보고 싶어 하는 간절하고 부드러운 슬픔"
+→ dominant_emotion: E1 (애절/그리움)
+
 ---
 
 ### 응답 JSON에 반드시 포함할 필드 (순서 중요)
 "theme_reasoning": "판단 근거 1~2문장 (surface→primary 순서로 설명)",
 "emotion_reasoning": "감정 판단 근거 1문장",
-"surface_theme": "코드(A~M)", "surface_theme_en": "영문키",
-"primary_theme": "코드(A~M)", "primary_theme_en": "영문키",
+"surface_theme": "코드(A~M, B1/B2/F1/F2 포함)", "surface_theme_en": "영문키",
+"primary_theme": "코드(A~M, B1/B2/F1/F2 포함)", "primary_theme_en": "영문키",
 "dominant_emotion": "코드(E1~E6)", "dominant_emotion_en": "영문키"
 """
   return prompt
@@ -176,11 +193,13 @@ def get_theme_classification_prompt() -> str:
 
 THEME_IMAGE_STYLE_GUIDE: dict[str, str] = {
   "A": "차갑고 맑은 청록 계열, 부드러운 안개 분위기, 쑥빛·청색 계열",
-  "B": "무채색 청회색 톤, 차갑고 채도 낮은 조명, 어둡고 쓸쓸한 분위기",
+  "B1": "부드럽게 퍼진 청회색 톤, 채도 낮은 안개 조명, 아련하고 그리운 분위기",
+  "B2": "무채색 청회색 톤, 차갑고 선명한 그림자, 단절되고 쓸쓸한 분위기",
   "C": "어둡고 위압적인 하늘, 짙은 진홍색 포인트 톤, 고대비 극적 조명",
   "D": "차갑고 황량한 회청색 팔레트, 흐리고 강렬한 역광, 탁하고 씻겨나간 톤",
   "E": "따뜻하고 부드러운 포커스 조명, 따뜻한 장밋빛·호박색 톤, 은은한 확산광",
-  "F": "차가운 청회색 톤, 사그라드는 황혼빛, 채도 낮은 애절한 팔레트",
+  "F1": "부드러운 황혼빛, 채도 낮은 연보라·청색 톤, 아련하고 애절한 팔레트",
+  "F2": "차가운 청회색 톤, 사그라드는 빛, 단절되고 쓸쓸한 팔레트",
   "G": "중립적인 무채색 톤, 깔끔하고 균일한 조명, 절제된 팔레트",
   "H": "선명하고 채도 높은 민화풍 색상, 밝고 따뜻한 조명, 고채도 팔레트",
   "I": "채도 낮은 흙빛 팔레트, 어스름한 가을 빛, 탁한 갈색·황토색 톤",
@@ -195,11 +214,13 @@ THEME_IMAGE_STYLE_GUIDE: dict[str, str] = {
 
 THEME_TTS_PARAMS: dict[str, dict[str, str]] = {
   "A": {"rate": "-15%", "pitch": "-1Hz"},   # 느리고 여유
-  "B": {"rate": "-10%", "pitch": "-2Hz"},   # 그리움
+  "B1": {"rate": "-15%", "pitch": "-2Hz"},  # 연군/그리움 — 느리고 아련
+  "B2": {"rate": "-5%",  "pitch": "-3Hz"},  # 연군/원망 — 차갑고 단호
   "C": {"rate": "-5%",  "pitch": "+2Hz"},   # 비장
   "D": {"rate": "-20%", "pitch": "-3Hz"},   # 무겁고 슬픈
   "E": {"rate": "-5%",  "pitch": "+1Hz"},   # 따뜻
-  "F": {"rate": "-15%", "pitch": "-2Hz"},   # 애잔
+  "F1": {"rate": "-15%", "pitch": "-2Hz"},  # 이별/그리움 — 느리고 애절
+  "F2": {"rate": "-5%",  "pitch": "-3Hz"},  # 이별/원망 — 차갑고 단호
   "G": {"rate": "+0%",  "pitch": "+0Hz"},   # 차분 권위
   "H": {"rate": "+10%", "pitch": "+3Hz"},   # 경쾌
   "I": {"rate": "-20%", "pitch": "-2Hz"},   # 느리고 지친
@@ -228,11 +249,13 @@ DEFAULT_TRANSITION_PADDING = 0.3
 
 THEME_IMAGE_PARAMS: dict[str, dict] = {
   "A": {"lora": 0.9, "cfg": 7.0, "color": "청록 계열, 안개 낀 분위기, 쑥빛", "neg_extra": "도시, 현대 건물"},
-  "B": {"lora": 0.85, "cfg": 7.5, "color": "무채색 궁중 톤, 차갑고 어두운 분위기", "neg_extra": "밝고 화사한 색상"},
+  "B1": {"lora": 0.85, "cfg": 7.0, "color": "채도 낮은 청회색 안개 톤, 아련한 분위기", "neg_extra": "밝고 화사한 색상"},
+  "B2": {"lora": 0.85, "cfg": 7.5, "color": "무채색 청회색 톤, 차갑고 단절된 분위기, 선명한 그림자", "neg_extra": "따뜻하고 밝은 색상"},
   "C": {"lora": 0.7, "cfg": 8.5, "color": "짙은 진홍 포인트, 어둡고 극적인 하늘", "neg_extra": "밝고 명랑한 색상"},
   "D": {"lora": 0.85, "cfg": 7.5, "color": "차갑고 황량한 회청색, 척박한 풍경", "neg_extra": "따뜻한 색, 울창한 녹음"},
   "E": {"lora": 0.75, "cfg": 7.0, "color": "따뜻한 장밋빛, 부드러운 분홍빛", "neg_extra": "차갑고 거친 조명"},
-  "F": {"lora": 0.8, "cfg": 7.0, "color": "차가운 청회색 톤, 사그라드는 빛", "neg_extra": "생동감 넘치는 따뜻한 색"},
+  "F1": {"lora": 0.8, "cfg": 7.0, "color": "부드러운 황혼빛, 채도 낮은 연보라·청색 톤", "neg_extra": "생동감 넘치는 원색"},
+  "F2": {"lora": 0.8, "cfg": 7.5, "color": "차가운 청회색 톤, 사그라드는 빛, 단절된 분위기", "neg_extra": "따뜻하고 밝은 색상"},
   "G": {"lora": 0.8, "cfg": 8.0, "color": "중립적인 선비풍 톤, 깔끔한 구도", "neg_extra": "혼란스럽고 어수선한"},
   "H": {"lora": 0.6, "cfg": 6.5, "color": "선명하고 채도 높은 민화풍 색상", "neg_extra": "심각하고 어두운"},
   "I": {"lora": 0.85, "cfg": 7.0, "color": "채도 낮은 흙빛, 가을 낙엽 색", "neg_extra": "선명하고 채도 높은 색상"},
@@ -248,11 +271,13 @@ DEFAULT_IMAGE_PARAMS = {"lora": 0.8, "cfg": 7.5, "color": "", "neg_extra": ""}
 
 THEME_BGM_HINTS: dict[str, dict[str, str]] = {
   "A": {"instruments": "gayageum, daegeum, bamboo flute", "mood": "serene, flowing, nature ambient", "tempo": "60-80 BPM"},
-  "B": {"instruments": "haegeum, gayageum", "mood": "melancholic, longing, court music", "tempo": "50-70 BPM"},
+  "B1": {"instruments": "haegeum, gayageum, soft daegeum", "mood": "melancholic, longing, gentle court music, wistful", "tempo": "50-65 BPM"},
+  "B2": {"instruments": "solo haegeum, sparse gayageum", "mood": "cold, resentful, desolate court music, bitter", "tempo": "55-70 BPM"},
   "C": {"instruments": "buk drum, janggu, brass", "mood": "heroic, solemn, martial", "tempo": "80-100 BPM"},
   "D": {"instruments": "solo haegeum, sparse percussion", "mood": "desolate, lonely, sorrowful", "tempo": "40-60 BPM"},
   "E": {"instruments": "gayageum, soft flute", "mood": "romantic, tender, gentle", "tempo": "60-80 BPM"},
-  "F": {"instruments": "solo daegeum, subtle strings", "mood": "wistful, fading, bittersweet", "tempo": "50-70 BPM"},
+  "F1": {"instruments": "solo daegeum, soft gayageum", "mood": "wistful, longing, tender, bittersweet", "tempo": "50-65 BPM"},
+  "F2": {"instruments": "solo haegeum, sparse percussion", "mood": "cold, resentful, fading, desolate", "tempo": "55-70 BPM"},
   "G": {"instruments": "geomungo, temple bell", "mood": "dignified, scholarly, composed", "tempo": "60-80 BPM"},
   "H": {"instruments": "piri, janggu, lively percussion", "mood": "playful, satirical, witty", "tempo": "100-120 BPM"},
   "I": {"instruments": "geomungo, wind sounds", "mood": "ephemeral, fading, contemplative", "tempo": "40-60 BPM"},
@@ -269,11 +294,13 @@ _SHORTS_SUB = {"color": (255, 255, 255), "stroke_color": (0, 0, 0), "stroke_widt
 
 THEME_SUBTITLE_STYLE: dict[str, dict] = {
   "A": _SHORTS_SUB,  # 숏츠 표준: 흰색 + 검은 외곽선
-  "B": _SHORTS_SUB,
+  "B1": _SHORTS_SUB,
+  "B2": _SHORTS_SUB,
   "C": _SHORTS_SUB,
   "D": _SHORTS_SUB,
   "E": _SHORTS_SUB,
-  "F": _SHORTS_SUB,
+  "F1": _SHORTS_SUB,
+  "F2": _SHORTS_SUB,
   "G": _SHORTS_SUB,
   "H": _SHORTS_SUB,
   "I": _SHORTS_SUB,
@@ -286,10 +313,13 @@ DEFAULT_SUBTITLE_STYLE = _SHORTS_SUB.copy()
 
 THEME_BGM_VOLUME: dict[str, dict[str, float]] = {
   "A": {"tts": 0.8, "bgm": 0.4},    # BGM 높게 (자연 분위기)
-  "B": {"tts": 0.9, "bgm": 0.3},    # 균형
+  "B1": {"tts": 0.85, "bgm": 0.35},  # 연군/그리움 — BGM 약간 높게
+  "B2": {"tts": 0.9, "bgm": 0.3},    # 연군/원망 — 균형
   "C": {"tts": 1.0, "bgm": 0.2},    # TTS 우선
   "D": {"tts": 0.85, "bgm": 0.35},  # 약간 BGM
   "E": {"tts": 0.9, "bgm": 0.35},   # 로맨틱 분위기
+  "F1": {"tts": 0.85, "bgm": 0.35},  # 이별/그리움 — BGM 약간 높게
+  "F2": {"tts": 0.9, "bgm": 0.3},    # 이별/원망 — 균형
   "H": {"tts": 1.0, "bgm": 0.15},   # TTS 최우선 (해학)
   "I": {"tts": 0.7, "bgm": 0.45},   # BGM 우세 (몽환)
   "J": {"tts": 0.8, "bgm": 0.4},    # 경건한 BGM
