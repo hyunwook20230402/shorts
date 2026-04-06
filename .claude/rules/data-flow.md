@@ -16,7 +16,8 @@ nlp.json
     ├── main_focus         background / character / object
     ├── scene_description  장면 묘사 (영어 키워드)
     ├── image_prompt       Step 1 이미지 LLM 출력 (최종 ComfyUI 프롬프트)
-    └── pose_type          Step 1 이미지 LLM 출력 (image_prompt 구도 가이드, 18종)
+    ├── pose_type          Step 1 이미지 LLM 출력 (character 씬 자세 가이드, 18종)
+    └── composition        Step 1 이미지 LLM 출력 (카메라 구도, 8종)
 ```
 
 ---
@@ -30,7 +31,8 @@ nlp.json
 | `main_focus` | 분석 LLM | — | — | pose_type 선택 가이드 | — | — |
 | `scene_description` | 분석 LLM | — | — | image_prompt 재료 (장면 묘사) | — | — |
 | `image_prompt` | 이미지 LLM | — | **스케줄 저장** | **ComfyUI 프롬프트** | — | — |
-| `pose_type` | 이미지 LLM | — | **스케줄 저장** | **image_prompt 구도 가이드 (간접)** | — | — |
+| `pose_type` | 이미지 LLM | — | **스케줄 저장** | **character 자세 가이드 (간접)** | — | — |
+| `composition` | 이미지 LLM | — | **스케줄 저장** | **카메라 구도 키워드 강제 주입** | — | — |
 | `primary_theme` | 테마 LLM | **TTS 속도/피치** | — | — | **BGM 악기/분위기/템포** | **TTS:BGM 볼륨비** |
 | `surface_theme` | 테마 LLM | — | — | **LoRA강도/CFG + 색감 키워드** | — | **자막 색상/크기** |
 | `dominant_emotion` | 테마 LLM | — | — | emotion_tone → image_prompt 재료 | **정서 힌트 → GPT BGM 프롬프트** | — |
@@ -50,9 +52,13 @@ Step 3 (Schedule)
   original_text        → 자막 text 필드
   image_prompt         → 스케줄 저장 → Step 4에 전달
   pose_type            → 스케줄 저장 → Step 4에 전달
+  composition          → 스케줄 저장 → Step 4에 전달
+  main_focus           → 스케줄 저장 → Step 4에 전달
 
 Step 4 (이미지)
   image_prompt         → ComfyUI Flux 양성 프롬프트
+  composition          → COMPOSITION_KEYWORDS 강제 주입 (8종)
+  main_focus           → character 유무 판별 → style suffix 분기 + composition guard
   surface_theme        → 색감 키워드 append (nlp.json 직접 읽음)
 
 Step 5 (BGM)
@@ -78,20 +84,22 @@ Step 6 (영상)
 ```
 original_text     ─┐
 emotion (씬별)    ─┤  → [Step 1 이미지 LLM]  → image_prompt ──→ [ComfyUI Flux] → PNG
-scene_description ─┤   (pose_type이 구도 가이드)                              ↑
-dominant_emotion  ─┘  (emotion_tone 변환 후)                                  │
+scene_description ─┤   (pose_type: 자세 가이드)                               ↑
+dominant_emotion  ─┘   (composition: 카메라 구도)                              │
                                                                               │
-surface_theme ───────────────────────────── theme_color append ───────────────┘
+composition ─────────────────────── COMPOSITION_KEYWORDS 강제 주입 ──────────┤
+surface_theme ───────────────────── theme_color append ─────────────────────┘
 ```
 
 | 순위 | 필드 | 역할 | 영향 강도 |
 |------|------|------|---------|
 | 1 | `image_prompt` | ComfyUI Flux 양성 프롬프트 그 자체 | ★★★★★ |
 | 2 | `original_text` | image_prompt 핵심 주제 재료 | ★★★★☆ |
-| 3 | `pose_type` | image_prompt 생성 시 구도/자세 가이드 (간접) | ★★★☆☆ |
-| 4 | `scene_description` | image_prompt 장면 묘사 재료 | ★★★☆☆ |
-| 5 | `surface_theme` | 색감 키워드 append | ★★★☆☆ |
-| 6 | `dominant_emotion` | emotion_tone → 조명/색감 지침 | ★★☆☆☆ |
+| 3 | `composition` | 카메라 구도 키워드 강제 주입 (8종) | ★★★★☆ |
+| 4 | `pose_type` | character 씬 자세 가이드 (간접) | ★★★☆☆ |
+| 5 | `scene_description` | image_prompt 장면 묘사 재료 | ★★★☆☆ |
+| 6 | `surface_theme` | 색감 키워드 append | ★★★☆☆ |
+| 7 | `dominant_emotion` | emotion_tone → 조명/색감 지침 | ★★☆☆☆ |
 
 ---
 

@@ -112,6 +112,45 @@ SD 1.5 + ControlNet + IP-Adapter 레거시 코드를 전면 제거하고 Flux.1-
 
 ---
 
+## 6. Step 4 이미지 품질 개선 — Flux guidance distillation 특성 (2026-04-06)
+
+**증상**:
+1. 비인물 씬(main_focus=object/background)에 인간 형체가 반복 등장 (3회 연속 실패)
+2. 인물 씬에서 현대 신발(나이키 유사) 등 시대 고증 위반
+
+**근본 원인**:
+1. **Flux.1-dev는 guidance distillation 사용** → `BasicGuider` + `FluxGuidance` 구조이므로 **네거티브 프롬프트가 구조적으로 불가**. "no people", "without humans" 같은 부정 표현이 CLIP 임베딩에서 오히려 "people", "humans"를 활성화.
+2. **seed 42 고정** → 동일 latent space 영역만 탐색하여 인물 포함 구도에서 탈출 불가.
+3. **추상적 키워드** "traditional korean shoes" → Flux가 구체적 전통 신발로 해석하지 못하고 현대 신발로 폴백.
+
+**해결책**:
+```python
+# ✅ 긍정 프롬프트 전환 (부정 표현 제거)
+FLUX_STYLE_SUFFIX_NO_CHARACTER = (
+  'uninhabited landscape, empty scenery, desolate nature, '
+  'still life of nature, untouched wilderness'
+)
+
+# ✅ seed 랜덤화
+'noise_seed': seed if seed >= 0 else random.randint(0, 2**31 - 1)
+
+# ✅ composition guard (비인물 씬에서 인물 구도 폴백)
+figure_comps = {'back_view', 'front_closeup', 'side_profile', 'over_shoulder'}
+if not has_character and comp in figure_comps:
+  comp = 'wide_establishing'
+
+# ✅ 시대 고증 키워드 구체화
+'traditional straw sandals, wooden clogs, leather shoes'  # (추상적 "traditional korean shoes" 대체)
+```
+
+**적용 규칙**:
+- **Rule 1**: Flux.1-dev에서 "no X", "without X" 등 부정 표현 사용 금지 → 긍정적 대체어 사용
+- **Rule 2**: seed는 항상 랜덤 (-1 기본값), 디버깅 시에만 고정
+- **Rule 3**: 비인물 씬에서 인물 구도(back_view, front_closeup 등) → wide_establishing 자동 폴백
+- **Rule 4**: 시대 고증 키워드는 추상적이 아닌 구체적 소품명 사용
+
+---
+
 ## 향후 예방 규칙
 
 1. **캐시 키/경로**: Step 모듈의 `get_cache_path()` 함수만 사용

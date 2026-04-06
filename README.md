@@ -1,7 +1,7 @@
 # AI 쇼츠 자동 생성 파이프라인 (고전시가 → YouTube Shorts) v2
 
 고전 한시·시조의 원문 이미지를 입력받아 **수묵화 스타일 AI 슬라이드쇼 동영상**으로 변환하는 파이프라인 프로젝트.
-edge-tts 음성 + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable Audio BGM으로 씬별 영상을 자동 생성합니다.
+edge-tts 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + Stable Audio BGM으로 씬별 영상을 자동 생성합니다.
 
 **현재 상태:** Step 0~6 구현 완료 (OCR → NLP → TTS → 스케줄링 → 이미지 생성 → BGM → 최종 병합)
 
@@ -15,7 +15,7 @@ edge-tts 음성 + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable A
 | **Python** | 3.12+ |
 | **GPU** | NVIDIA RTX 4070 (8GB VRAM) 이상 권장 |
 | **패키지 매니저** | [uv](https://docs.astral.sh/uv/) 설치 필요 |
-| **ComfyUI** | 별도 설치 필요 (SD 1.5 + 국풍 LoRA) |
+| **ComfyUI** | 별도 설치 필요 (Flux.1-dev FP8 + GuoFeng5 LoRA) |
 | **FFmpeg** | 시스템 PATH에 등록 필요 |
 | **폰트** | 나눔스퀘어 ExtraBold (`%LOCALAPPDATA%/Microsoft/Windows/Fonts/NanumSquare.ttf`) |
 
@@ -50,8 +50,8 @@ edge-tts 음성 + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable A
 └────────────────────┬────────────────────────────────────────┘
                      ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Step 4: 정지이미지 (ComfyUI SD 1.5)                         │
-│ SD 1.5 + 국풍 LoRA + IP-Adapter → 문장별 PNG 이미지         │
+│ Step 4: 정지이미지 (ComfyUI Flux.1-dev FP8)                  │
+│ Flux.1-dev FP8 + GuoFeng5 LoRA → 문장별 PNG 이미지          │
 │ 캐시: {poem_dir}/step4/scene{NN}_sent{MM}_still.png        │
 └────────────────────┬────────────────────────────────────────┘
                      ↓
@@ -80,7 +80,7 @@ edge-tts 음성 + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable A
 | **OCR / NLP** | HCX-005 (OCR + 번역 + 테마/정서 분류 + 이미지 프롬프트) |
 | **BGM 프롬프트** | gpt-4o-mini (테마/정서 기반 Stable Audio 프롬프트) |
 | **음성 생성** | edge-tts (한국어, 무료 — `ko-KR-SunHiNeural`) |
-| **이미지 생성** | ComfyUI SD 1.5 정지이미지 (국풍 LoRA + IP-Adapter) |
+| **이미지 생성** | ComfyUI Flux.1-dev FP8 정지이미지 (GuoFeng5 LoRA) |
 | **BGM 생성** | Stable Audio (`stabilityai/stable-audio-open-1.0`) |
 | **자막** | PIL Image 기반 (NanumSquare EB, 흰색+검은 외곽선, 65% 위치) |
 | **최종 합성** | MoviePy + FFmpeg (이미지+오디오+자막+BGM 슬라이드쇼) |
@@ -93,9 +93,9 @@ edge-tts 음성 + ComfyUI SD 1.5 정지이미지 + NanumSquare 자막 + Stable A
 
 Step 1에서 고전시가의 테마와 정서를 자동 분류하여 전체 파이프라인에 반영합니다.
 
-**13개 테마 (A~M):** 강호자연, 충의지사, 연군지정, 이별상사, 세월무상, 풍류지락, 유배한탄, 전쟁비가, 교훈풍자, 민중생활, 탈속은둔, 여성규방, 건국송축
+**15개 테마 (A~M, B1/B2, F1/F2):** 강호자연, 연군/그리움(B1), 연군/원망(B2), 충절/우국, 유배, 애정, 이별/그리움(F1), 이별/원망(F2), 교훈/도학, 풍자/해학, 무상/탄로, 종교/신앙, 기행, 노동/세시풍속, 건국송축
 
-**7개 정서 (E1~E7):** 비장, 달관, 그리움, 흥취, 한탄, 경외, 풍자
+**6개 정서 (E1~E6):** 애절/그리움, 원망/차가움, 비장/결연, 평화/달관, 쾌활/해학, 경건/숭고
 
 **적용 범위:**
 - `primary_theme` → BGM 악기/분위기, 전체 톤
@@ -120,8 +120,7 @@ notebook/cache/                 # CLI 실행 캐시 (cd notebook && python step*
 │   ├── step4/scene00_sent00_still.png
 │   ├── step5/bgm.wav
 │   └── step6/shorts.mp4
-├── poem_02/                    # 시 2 캐시 (동일 구조)
-└── reference/                  # IP-Adapter 참조 이미지
+└── poem_02/                    # 시 2 캐시 (동일 구조)
 
 upload_cache/                   # UI 업로드 캐시 (FastAPI + Streamlit)
 ├── task_states.json            # 전체 task 상태 관리 (PersistentTaskDict)
@@ -153,20 +152,16 @@ EDGE_TTS_VOICE=ko-KR-SunHiNeural  # edge-tts 음성 (기본값)
 
 # ComfyUI 이미지 생성
 COMFYUI_HOST=http://127.0.0.1:8188
-SD15_CHECKPOINT=Realistic_Vision_V5.1.safetensors
-LORA_NAME=E38090E59BBDE9A38EE68F92E794BBE38091E58FABE7.G2A0.safetensors
-LORA_STRENGTH=0.8
-STILL_IMAGE_STEPS=30
-STILL_IMAGE_CFG=7.5
 COMFYUI_OUTPUT_DIR=ComfyUI/output
 COMFYUI_INPUT_DIR=ComfyUI/input
 COMFYUI_MAX_WAIT=1200
 
-# IP-Adapter (캐릭터 일관성, 선택)
-IPADAPTER_MODEL=ip-adapter_sd15.bin
-IPADAPTER_WEIGHT=0.5
-CLIP_VISION_MODEL=clip_vision_h14.safetensors
-REFERENCE_IMAGE_PATH=cache/reference/character.png
+# Flux.1-dev FP8
+FLUX_UNET=flux1-dev-fp8.safetensors
+FLUX_LORA_NAME=GuoFeng5-FLUX.1-Lora.safetensors
+FLUX_LORA_STRENGTH=0.8
+FLUX_STEPS=20
+FLUX_GUIDANCE=4.0
 
 # Stable Audio BGM
 STABLE_AUDIO_MODEL=stabilityai/stable-audio-open-1.0
@@ -183,14 +178,9 @@ cd ../ComfyUI
 python main.py
 
 # 필요 모델 확인
-ls models/checkpoints/   # SD 1.5 체크포인트
-ls models/loras/         # 국풍 LoRA
+ls models/unet/          # Flux.1-dev FP8 UNet
+ls models/loras/         # GuoFeng5 LoRA
 ```
-
-**IP-Adapter 사용 시 추가 모델:**
-- `models/ipadapter/ip-adapter_sd15.bin`
-- `models/clip_vision/clip_vision_h14.safetensors`
-- 참조 이미지: `cache/reference/character.png`
 
 ### 3. 서버 실행
 
@@ -246,6 +236,10 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 | `video-verification-agent` | 영상 스펙/오디오/자막 검증 | Step 6 최종 영상 완성 후 |
 | `seo-metadata-agent` | YouTube 메타데이터 생성 | Step 6 최종 영상 완성 후 |
 | `pipeline-debug-agent` | 로그 분석 + 근본 원인 진단 | Step 실행 에러 발생 시 |
+| `ocr-validation-agent` | OCR 결과 완전성·정확성 검증 | Step 0 OCR 완료 후 |
+| `nlp-validation-agent` | 씬 분할·테마·정서·프롬프트 검증 | Step 1 NLP 완료 후 |
+| `prd-validator` | PRD 완전성·실현가능성 검증 | PRD 작성 완료 시 |
+| `prd-writer-shorts` | 파이프라인 PRD 작성 | 새 기능 설계 시 |
 
 ---
 
@@ -256,8 +250,8 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 ### 오류 1: 자막 타이밍 오프셋 누락 (Section 4)
 - 씬별 alignment JSON은 씬 내부 시간 기준 → 최종 병합 시 누적 오프셋 필수
 
-### 오류 2: GPU VRAM 부족 (Section 5)
-- STILL_IMAGE_STEPS 줄이기 또는 다른 GPU 프로세스 종료
+### 오류 2: GPU VRAM 부족
+- FLUX_STEPS 줄이기 또는 다른 GPU 프로세스 종료
 
 ### 오류 3: BGM 볼륨 조절 (MoviePy)
 - `multiply_volume()` 아닌 `volumex()` 사용 필수
@@ -279,6 +273,7 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 | `cache-management.md` | 캐시 경로 규칙, poem_dir 기반 |
 | `streamlit-patterns.md` | 폴링 패턴, @st.cache_data 금지 |
 | `cache-field-checklist.md` | JSON 필드 추가 시 E2E 검증 필수 |
+| `data-flow.md` | nlp.json 필드 → Step 2~6 영향 지도 |
 
 ---
 
@@ -287,7 +282,7 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 - **CLAUDE.md** — Claude Code용 프로젝트 아키텍처 안내
 - **.claude/rules/** — 코드 스타일, 보안, 에러 처리, Git, 캐시 규칙
 - **.claude/skills/** — 자동 워크플로우 (상태 확인, 캐시 검증, ComfyUI 헬스체크 등)
-- **.claude/agents/** — 서브에이전트 9개 (아트 디렉터, QA, BGM 검증, 영상 검증, 디버그 등)
+- **.claude/agents/** — 서브에이전트 11개 (아트 디렉터, QA, BGM 검증, 영상 검증, 디버그 등)
 - **.claude/rules/bug_fixes_and_lessons.md** — v2 설계 교훈 및 버그 수정 이력
 
 ---
@@ -299,14 +294,13 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 - [x] Step 1: NLP + 씬 분할 + 이중 테마/정서 분류 (HCX-005)
 - [x] Step 2: edge-tts TTS + alignment 타임스탬프
 - [x] Step 3: 문장 단위 스케줄링
-- [x] Step 4: ComfyUI SD 1.5 정지이미지 생성
+- [x] Step 4: ComfyUI Flux.1-dev FP8 정지이미지 생성
 - [x] Step 5: Stable Audio BGM 생성 (테마/정서 기반)
 - [x] Step 6: MoviePy 최종 병합 + NanumSquare 자막 + BGM 믹싱
 
 ### Phase 2 (후속): 품질 고도화
-- [ ] Flux.1-dev FP8 + GuoFeng5 LoRA 이미지 모델 전환 (Step 4)
+- [x] Flux.1-dev FP8 + GuoFeng5 LoRA 이미지 모델 전환 (Step 4) — 완료 (2026-04-05)
 - [ ] YouTube Shorts 자동 업로드 (YouTube Data API v3)
-- [ ] 캐릭터 일관성: IP-Adapter 참조 이미지 고도화
 - [ ] 수묵화 LoRA 추가 학습 (kohya_ss)
 - [ ] 씬 수 확장: 현행 → 15~20개
 - [ ] 국립중앙박물관 오픈 이미지 API 연동

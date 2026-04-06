@@ -44,7 +44,31 @@
       "Bash(kill *)",
       "Bash(xargs *)",
       "Skill(update-config)",
-      "Bash(ruff check:*)"
+      "Bash(ruff check:*)",
+      "Bash(rm -rf .pytest_cache .ruff_cache)",
+      "WebFetch(domain:namu.wiki)",
+      "WebFetch(domain:encykorea.aks.ac.kr)",
+      "WebFetch(domain:m.cafe.daum.net)",
+      "WebFetch(domain:www.culture.go.kr)",
+      "WebFetch(domain:steemit.com)",
+      "WebFetch(domain:orbi.kr)",
+      "WebFetch(domain:atom.ac)",
+      "WebFetch(domain:brunch.co.kr)",
+      "WebFetch(domain:samter.redsalt.co.kr)",
+      "WebFetch(domain:cdata2.chunjae.co.kr)",
+      "WebFetch(domain:aca.chunjae.co.kr)",
+      "WebFetch(domain:www.aladin.co.kr)",
+      "Bash(rm:*)",
+      "Bash(wc -l /c/Users/user/workspaces/shorts/.claude/agents/*.md /c/Users/user/workspaces/shorts/.claude/skills/*.md /c/Users/user/workspaces/shorts/.claude/rules/*.md)",
+      "Bash(USE_FLUX=true uv run python step4_image.py cache/poem_01)",
+      "Bash(cmd.exe:*)",
+      "Bash(/c/Users/user/workspaces/shorts/.venv/Scripts/python.exe step2_tts.py \"cache/poem_01\")",
+      "Bash(/c/Users/user/workspaces/shorts/.venv/Scripts/python.exe:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(rm -rf cache/poem_test/step1)",
+      "Bash(rm -rf cache/poem_test/step3 cache/poem_test/step4)",
+      "Bash(rm -rf cache/poem_test/step4)",
+      "Bash(wc -l .claude/agents/*.md)"
     ]
   }
 }
