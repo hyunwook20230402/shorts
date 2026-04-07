@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
 
 from api.models import PipelineRunRequest, StepRequest, StepStatusEnum
 from api.pipeline_runner import (
@@ -316,3 +317,41 @@ async def run_step6_endpoint(request: StepRequest) -> dict:
 
   _executor.submit(_run_sync)
   return {'task_id': request.task_id, 'status': 'running'}
+
+
+class OcrTextUpdateRequest(BaseModel):
+  task_id: str
+  text: str
+
+
+@router.put('/steps/step0/ocr-text')
+async def update_ocr_text(request: OcrTextUpdateRequest) -> dict:
+  """사용자가 교정한 OCR 텍스트를 캐시에 저장하고 Step 1 이하 캐시 무효화"""
+  if request.task_id not in task_status_dict:
+    raise HTTPException(status_code=404, detail=f'작업 {request.task_id}를 찾을 수 없습니다')
+
+  task = task_status_dict[request.task_id]
+  if not task.poem_id:
+    raise HTTPException(status_code=400, detail='poem_id 없음 — 이미지를 다시 업로드하세요')
+
+  from api.pipeline_runner import _get_poem_dir
+  from notebook.step0_ocr import get_cache_path as get_ocr_cache_path
+
+  poem_dir = _get_poem_dir(task)
+  cache_path = get_ocr_cache_path(poem_dir)
+  cache_path.parent.mkdir(parents=True, exist_ok=True)
+  cache_path.write_text(request.text, encoding='utf-8')
+
+  # task 상태 업데이트 + Step 1 이하 캐시 무효화
+  task.ocr_text = request.text
+  task.nlp_cache_path = None
+  task.audio_paths = []
+  task.tts_alignment_paths = []
+  task.frame_schedule_path = None
+  task.still_image_paths = []
+  task.video_clip_paths = []
+  task.video_path = None
+  task_status_dict[request.task_id] = task
+
+  logger.info(f'OCR 텍스트 교정 저장: task_id={request.task_id}, path={cache_path}')
+  return {'status': 'ok', 'path': str(cache_path)}

@@ -232,7 +232,38 @@ else:
         st.subheader('📝 OCR 결과')
         if status['current_step'] >= 0:
           if status['ocr_text']:
-            st.text_area('원문 텍스트', value=status['ocr_text'], height=300, disabled=True)
+            # 의심 행 자동 감지
+            try:
+              import sys as _sys
+              import os as _os
+              _notebook_dir = _os.path.join(_os.path.dirname(__file__), 'notebook')
+              if _notebook_dir not in _sys.path:
+                _sys.path.insert(0, _notebook_dir)
+              from ocr_postcheck import detect_suspicious_lines
+              _issues = detect_suspicious_lines(status['ocr_text'])
+              if _issues:
+                for _issue in _issues:
+                  st.warning(f"⚠️ {_issue['line_no']}행 '{_issue['text']}' — {_issue['reason']}")
+            except Exception:
+              pass
+
+            edited_text = st.text_area(
+              '원문 텍스트 (직접 수정 가능)',
+              value=status['ocr_text'],
+              height=300,
+              key='ocr_text_edit',
+            )
+
+            if st.button('✅ 교정 완료 — 저장 후 Step 1 진행', key='ocr_confirm'):
+              resp = requests.put(
+                f'{st.session_state.api_base}/steps/step0/ocr-text',
+                json={'task_id': st.session_state.task_id, 'text': edited_text},
+              )
+              if resp.status_code == 200:
+                st.success('교정된 OCR 텍스트가 저장됐습니다.')
+                st.rerun()
+              else:
+                st.error(f'저장 실패: {resp.text}')
           else:
             st.info('Step 0을 실행하면 결과가 표시됩니다')
         else:

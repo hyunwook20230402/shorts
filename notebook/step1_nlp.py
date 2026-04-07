@@ -48,9 +48,22 @@ webtoon_style_prefix = (
 
 
 
+# 출처/작가 줄 패턴: "- 작가명, 「작품명」" 형태
+_AUTHOR_LINE_RE = re.compile(r'^[-*]\s*[가-힣\s]+[,，]\s*[「『《<〈]')
+
+
 def extract_original_lines(text: str) -> list[str]:
-  """OCR 원문에서 실제 구절 행 목록 추출. 빈 줄과 '---' 구분자 제외."""
-  return [ln.strip() for ln in text.splitlines() if ln.strip() and ln.strip() != '---']
+  """OCR 원문에서 실제 구절 행 목록 추출. 빈 줄, '---' 구분자, 출처/작가 표시 행 제외."""
+  result = []
+  for ln in text.splitlines():
+    ln = ln.strip()
+    if not ln or ln == '---':
+      continue
+    if _AUTHOR_LINE_RE.match(ln):
+      logger.info('출처/작가 줄 제외: %s', ln)
+      continue
+    result.append(ln)
+  return result
 
 
 translate_system_prompt = """당신은 한국 고전시가 분석가이자 웹툰 쇼츠 대본 작가입니다.
@@ -442,7 +455,7 @@ def call_hcx005_classify_theme(raw_text: str) -> dict:
         'role': 'user',
         'content': (
           f'다음 고전시가 원문의 테마와 지배적 정서를 분류하세요.\n\n{raw_text}\n\n'
-          '또한 이 시의 제목과 작자를 JSON에 "title"과 "author" 필드로 포함하세요. 미상이면 "미상"으로 작성.'
+          '위 원문의 테마와 지배적 정서만 분류하세요.'
         ),
       },
     ],
@@ -858,10 +871,6 @@ def process_nlp(
       dominant_emotion,
     )
 
-    # title/author: Step 1_1 테마 분류 응답에서 추출
-    title = theme_result.get('title', '미상')
-    author = theme_result.get('author', '미상')
-
     # --- Step 1_2: HCX-005 분석 (행별 개별 호출, 1행=1씬 보장) ---
     original_lines = extract_original_lines(extracted_raw_text)
     logger.info('Step 1_2: %d행 개별 분석 시작', len(original_lines))
@@ -922,8 +931,6 @@ def process_nlp(
         'dominant_emotion': dominant_emotion,
         'dominant_emotion_en': dominant_emotion_en,
         'modern_script_data': modern_script_data,
-        'title': title,
-        'author': author,
     })
 
     # 10. Notion: 기록 및 상태 업데이트
