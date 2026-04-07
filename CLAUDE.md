@@ -126,7 +126,6 @@ SUBTITLE_FONT_PATH=%LOCALAPPDATA%/Microsoft/Windows/Fonts/NanumSquare.ttf
 
 | 상황 | 에이전트 | 목적 |
 |------|---------|------|
-| 고전시가 원문 텍스트 입력 | `historical-context-agent` | 역사적 맥락 조사 |
 | Step 0 (OCR) 완료 | `ocr-validation-agent` | OCR 결과 완전성·정확성 검증 |
 | Step 1 (NLP) 완료 | `nlp-validation-agent` | 씬 분할·테마·정서·번역·프롬프트 품질 검증 |
 | Step 2 (TTS) 완료 | `audio-visual-qa-agent` | 오디오-타임스탬프 타이밍 검증 |

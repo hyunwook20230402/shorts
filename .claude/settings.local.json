@@ -68,7 +68,10 @@
       "Bash(rm -rf cache/poem_test/step1)",
       "Bash(rm -rf cache/poem_test/step3 cache/poem_test/step4)",
       "Bash(rm -rf cache/poem_test/step4)",
-      "Bash(wc -l .claude/agents/*.md)"
+      "Bash(wc -l .claude/agents/*.md)",
+      "Bash(wait bket72kh0:*)",
+      "Bash(../.venv/Scripts/python step5_bgm.py \"cache/만전춘별사\")",
+      "Bash(../.venv/Scripts/python:*)"
     ]
   }
 }
