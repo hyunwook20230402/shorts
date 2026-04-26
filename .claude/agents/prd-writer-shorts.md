@@ -17,7 +17,7 @@ memory: project
 - 백엔드: FastAPI (오케스트레이터)
 - 데이터베이스: Notion API (Notion Database)
 - Vision/Text LLM: HCX-005 (CLOVA Studio, Step 0-1 OCR/번역/테마/프롬프트) / gpt-4o-mini (BGM 프롬프트)
-- 음성: edge-tts (한국어, 무료 — ko-KR-SunHiNeural)
+- 음성: ElevenLabs TTS (`eleven_multilingual_v2`, 여성/남성 voice ID 2종, `ELEVENLABS_API_KEY` 필수)
 - 이미지: ComfyUI Flux.1-dev FP8 정지이미지 (국풍 LoRA)
 - BGM: Stable Audio (stabilityai/stable-audio-open-1.0)
 - 자막: PIL Image 기반 (NanumSquare EB + 흰색 + 검은 외곽선, Burn-in)
@@ -27,7 +27,7 @@ memory: project
 **파이프라인 단계:**
 - Step 0: OCR (HCX-005로 이미지 → 텍스트 추출)
 - Step 1: NLP (번역 + 씬 분할 + 이중 테마/정서 분류 + 이미지 프롬프트 + DB 로깅)
-- Step 2: 음성+타임스탬프 (edge-tts로 문장별 MP3 + alignment JSON 생성)
+- Step 2: 음성+타임스탬프 (ElevenLabs TTS로 문장별 MP3 + mutagen 길이 기반 alignment JSON 생성)
 - Step 3: 문장 스케줄링 (문장 단위 duration/image_prompt/audio_path 매핑)
 - Step 4: 정지이미지 (ComfyUI Flux.1-dev FP8 + 국풍 LoRA로 문장별 PNG)
 - Step 5: BGM 생성 (Stable Audio → 테마/정서 기반 배경음악 WAV)

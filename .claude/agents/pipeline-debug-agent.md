@@ -29,7 +29,7 @@ Step 실행 중 에러가 발생하거나 예상치 못한 결과가 나올 때,
 
 ### 단계 1: 로그 수집
 
-1. `notebook/step2_tts.log` — edge-tts 오디오 생성 로그
+1. `notebook/step2_tts.log` — ElevenLabs TTS 오디오 생성 로그
 2. `notebook/step3_scheduler.log` — 프레임 스케줄링 로그
 3. `notebook/step4_image.log` — ComfyUI 이미지 생성 로그
 4. `notebook/step5_bgm.log` — Stable Audio BGM 생성 로그
@@ -64,7 +64,9 @@ Step 실행 중 에러가 발생하거나 예상치 못한 결과가 나올 때,
 | `JSONDecodeError` | 캐시 JSON 파일 손상 | use_cache=false로 재실행 |
 | `FileNotFoundError` | 이전 Step 미실행 또는 캐시 누락 | 선행 Step 재실행 |
 | `KeyError` | 캐시 구조 변경 (v1/v2 호환성) | 해당 Step use_cache=false |
-| `edge_tts` 관련 에러 | 네트워크 문제 또는 음성 ID 오류 | 네트워크 확인, EDGE_TTS_VOICE 확인 |
+| `ELEVENLABS_API_KEY` 관련 에러 (401) | API 키 누락/만료 | `.env`의 `ELEVENLABS_API_KEY` 갱신 |
+| ElevenLabs 429 rate limit | 무료 한도 초과 또는 연속 호출 | 대기 후 재시도, voice ID 변경 검토 |
+| ElevenLabs 네트워크/타임아웃 | 외부 API 일시 장애 | 3회 재시도 자동, 지속 시 시스템 상태 확인 |
 
 ### 단계 5: 보고서 출력
 

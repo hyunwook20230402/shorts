@@ -32,9 +32,10 @@ OUTPUT_HEIGHT = 1920
 OUTPUT_FPS = 30
 
 
-def get_cache_path(poem_dir: Path) -> Path:
+def get_cache_path(poem_dir: Path, include_bgm: bool = True) -> Path:
   """캐시 경로 생성"""
-  return Path(poem_dir) / 'step6' / 'shorts.mp4'
+  filename = 'shorts.mp4' if include_bgm else 'shorts_no_bgm.mp4'
+  return Path(poem_dir) / 'step6' / filename
 
 
 def get_audio_duration(audio_path: str) -> float:
@@ -330,7 +331,8 @@ def compose_final_video(
   audio_paths: list[str],
   sentence_schedule_path: str,
   poem_dir: Path,
-  use_cache: bool = True
+  use_cache: bool = True,
+  include_bgm: bool = True,
 ) -> str:
   """
   최종 영상 합성:
@@ -344,7 +346,7 @@ def compose_final_video(
   """
   import os
 
-  output_path = get_cache_path(poem_dir)
+  output_path = get_cache_path(poem_dir, include_bgm=include_bgm)
 
   # 캐시 확인
   if use_cache and output_path.exists():
@@ -410,9 +412,9 @@ def compose_final_video(
     except Exception as e:
       logger.warning(f'자막 추가 실패 (계속): {e}')
 
-    # 4. BGM 믹싱 (step5_bgm.wav 존재 시)
+    # 4. BGM 믹싱 (include_bgm=True이고 step5_bgm.wav 존재 시)
     bgm_path = Path(poem_dir) / 'step5' / 'bgm.wav'
-    if bgm_path.exists():
+    if include_bgm and bgm_path.exists():
       try:
         video, tmp_bgm_path = mix_bgm_into_video(
           video,
@@ -423,6 +425,8 @@ def compose_final_video(
         logger.info('BGM 믹싱 완료')
       except Exception as e:
         logger.warning(f'BGM 믹싱 실패 (자막만 영상 저장): {e}')
+    elif not include_bgm:
+      logger.info('--no-bgm 옵션: BGM 믹싱 스킵')
     else:
       logger.info('step5_bgm.wav 없음, BGM 믹싱 스킵')
 
@@ -460,6 +464,7 @@ def run_step6(
   audio_paths: list[str] | None = None,
   sentence_schedule_path: str | None = None,
   use_cache: bool = True,
+  include_bgm: bool = True,
 ) -> str:
   """
   Main Step 6 함수 — 이미지+오디오+자막+BGM 최종 병합.
@@ -490,6 +495,7 @@ def run_step6(
     sentence_schedule_path,
     poem_dir,
     use_cache=use_cache,
+    include_bgm=include_bgm,
   )
 
 
@@ -527,18 +533,25 @@ if __name__ == '__main__':
     ]
   )
 
-  if len(sys.argv) < 2:
-    logger.error('사용법: python step6_video.py <poem_dir>')
-    sys.exit(1)
+  import argparse
+  parser = argparse.ArgumentParser(description='Step 6: 최종 영상 합성')
+  parser.add_argument('poem_dir', help='poem 캐시 디렉토리 (예: cache/만전춘별사)')
+  parser.add_argument('--no-bgm', action='store_true', help='BGM 믹싱 없이 TTS+자막만 출력 (shorts_no_bgm.mp4)')
+  parser.add_argument('--no-cache', action='store_true', help='캐시 무시하고 재생성')
+  args = parser.parse_args()
 
-  poem_dir_arg = Path(sys.argv[1])
+  poem_dir_arg = Path(args.poem_dir)
 
   if not cmd_check():
     logger.error('환경 확인 실패')
     sys.exit(1)
 
   try:
-    output_path = run_step6(str(poem_dir_arg), use_cache=True)
+    output_path = run_step6(
+      str(poem_dir_arg),
+      use_cache=not args.no_cache,
+      include_bgm=not args.no_bgm,
+    )
     if Path(output_path).exists():
       size_mb = Path(output_path).stat().st_size / (1024 * 1024)
       logger.info(f'영상 합성 완료: {Path(output_path).name} ({size_mb:.1f}MB)')

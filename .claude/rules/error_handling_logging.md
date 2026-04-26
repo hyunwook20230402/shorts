@@ -3,4 +3,4 @@
 - **상태 관리:** 에러 발생 시 진행 상황을 `task_status_dict['error_log']`에 즉시 업데이트하고, Notion DB(`task_status_log`)에 동기화해야 합니다.
 - **상태 업데이트 시점:** 각 Step의 시작(`running`), 완료(`completed`), 실패(`failed`) 3개 시점에서 반드시 `task.status` 명시적 설정
 - **ComfyUI 타임아웃:** `COMFYUI_MAX_WAIT` 초과 시 로그 기록 후 `cache/step4/` 부분 결과 보존 (전체 삭제 금지)
-- **edge-tts 에러:** 네트워크 에러 시 3회 재시도, 빈 응답 시 텍스트 유효성 재확인
+- **ElevenLabs TTS 에러:** 401 → API 키 즉시 실패(재시도 없음), 429(rate limit) → 3회 지수 백오프 재시도, 그 외 HTTP 에러도 3회 재시도. 빈 응답 시 텍스트 유효성 재확인.

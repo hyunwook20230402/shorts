@@ -18,7 +18,9 @@ description: "환경변수 설정을 검증합니다. .env 파일의 필수 키 
 | `NCP_CLOVA_API_KEY` | HCX-005 OCR/번역 | ✅ |
 | `OPENAI_API_KEY` | gpt-4o-mini 프롬프트 | ✅ |
 | `NOTION_API_KEY` | Notion DB 연동 | ⚠️ 선택 |
-| `EDGE_TTS_VOICE` | TTS 음성 (기본: ko-KR-SunHiNeural) | ⚠️ 기본값 |
+| `ELEVENLABS_API_KEY` | ElevenLabs TTS API 키 | ✅ |
+| `ELEVENLABS_VOICE_ID1` | 남성 voice ID (기본: XZpuKnMGlnvwMXKjjtQP) | ⚠️ 기본값 |
+| `ELEVENLABS_VOICE_ID2` | 여성 voice ID (기본: GFjnEFNRrDZ9sqkhR3a9) | ⚠️ 기본값 |
 | `COMFYUI_HOST` | ComfyUI 서버 주소 | ✅ |
 | `COMFYUI_OUTPUT_DIR` | ComfyUI 출력 경로 | ✅ |
 | `COMFYUI_MAX_WAIT` | 최대 대기 시간(초) | ⚠️ 기본값 1200 |

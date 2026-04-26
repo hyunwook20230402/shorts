@@ -151,6 +151,44 @@ if not has_character and comp in figure_comps:
 
 ---
 
+## 7. Step 2: edge-tts → ElevenLabs TTS 전환 (2026-04-25)
+
+**배경**: edge-tts는 무료지만 ① 음성 품질이 한정적이고 ② 한국 고전시가 낭독에 어울리는 음색이 부족했음. ElevenLabs `eleven_multilingual_v2`로 전환.
+
+**구현 변경 (notebook/step2_tts.py)**:
+- 환경변수: `EDGE_TTS_VOICE` 제거 → `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID1`(남성), `ELEVENLABS_VOICE_ID2`(여성, 기본) 도입
+- 호출 방식: `requests.post('/v1/text-to-speech/{voice_id}', json={'model_id': 'eleven_multilingual_v2', 'voice_settings': {'stability': 0.5, 'similarity_boost': 0.75}})`
+- 성별 선택: `get_voice_id('female'|'male')` 헬퍼 추가
+- 에러 처리:
+  - 401 → 즉시 ValueError (재시도 무의미)
+  - 429 → 3회 지수 백오프
+  - 그 외 HTTP/네트워크 에러도 3회 재시도
+- alignment 추정: ElevenLabs Free 플랜은 with-timestamps 미지원이므로 `mutagen.mp3.MP3.info.length`로 실제 MP3 길이 측정 후 단어/문장 균등 분배
+- TTS 텍스트 정제: `clean_tts_text()`에서 한자 병기, 주석 마커, 구두점 제거
+
+**적용 규칙**:
+- **Rule 1**: ElevenLabs 401 에러는 재시도하지 않는다 (API 키 자체 문제)
+- **Rule 2**: voice ID는 `.env`에 보관, 하드코딩 금지. 기본값(여성)은 `GFjnEFNRrDZ9sqkhR3a9`
+- **Rule 3**: alignment의 `total_duration`은 mutagen 측정값을 신뢰 (텍스트 추정값은 fallback only)
+
+---
+
+## 8. Step 6: `--no-bgm` 옵션 추가 (2026-04-25)
+
+**배경**: BGM 검수/디버깅 시 TTS+자막만 들어보고 싶거나, BGM 없이 별도 음원을 후처리로 합성하고 싶을 때를 위한 옵션.
+
+**구현 변경 (notebook/step6_video.py)**:
+- CLI 인터페이스: `argparse`로 전환, `--no-bgm`, `--no-cache` 옵션 추가
+- `get_cache_path(poem_dir, include_bgm: bool = True)` → `include_bgm=True`이면 `shorts.mp4`, `False`이면 `shorts_no_bgm.mp4`
+- `compose_final_video()`/`run_step6()` 시그니처에 `include_bgm: bool = True` 추가
+- BGM 믹싱 분기: `if include_bgm and bgm_path.exists()` 조건. `include_bgm=False`이면 `--no-bgm 옵션: BGM 믹싱 스킵` 로깅 후 영상 완성
+
+**적용 규칙**:
+- **Rule 1**: 두 출력 파일은 동일 디렉토리에 공존 (`shorts.mp4`, `shorts_no_bgm.mp4`). 캐시 키가 다르므로 use_cache 충돌 없음
+- **Rule 2**: API 라우트(`api/routes/steps.py`)에서도 `include_bgm` 파라미터를 명시적으로 전달해야 한다 (Rule 1, Rule 3 일반 원칙 준수)
+
+---
+
 ## 향후 예방 규칙
 
 1. **캐시 키/경로**: Step 모듈의 `get_cache_path()` 함수만 사용

@@ -1,7 +1,7 @@
 # AI 쇼츠 자동 생성 파이프라인 (고전시가 → YouTube Shorts) v2
 
 고전 한시·시조의 원문 이미지를 입력받아 **수묵화 스타일 AI 슬라이드쇼 동영상**으로 변환하는 파이프라인 프로젝트.
-edge-tts 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + Stable Audio BGM으로 씬별 영상을 자동 생성합니다.
+ElevenLabs 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + Stable Audio BGM으로 씬별 영상을 자동 생성합니다.
 
 **현재 상태:** Step 0~6 구현 완료 (OCR → NLP → TTS → 스케줄링 → 이미지 생성 → BGM → 최종 병합)
 
@@ -38,9 +38,10 @@ edge-tts 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + 
 └────────────────────┬────────────────────────────────────────┘
                      ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Step 2: TTS + 타임스탬프 (edge-tts)                         │
-│ 출력: 문장별 MP3 + alignment JSON (추정 타임스탬프)          │
-│ 캐시: {poem_dir}/step2/scene{NN}_sent{MM}_audio.mp3        │
+│ Step 2: TTS + 타임스탬프 (ElevenLabs)                       │
+│ 모델: eleven_multilingual_v2 (여성/남성 voice ID 선택 가능) │
+│ 출력: 문장별 MP3 + alignment JSON (mutagen 길이 + 균등 분배)│
+│ 캐시: {poem_dir}/step2/scene{NN}_sent{MM}_audio.mp3         │
 └────────────────────┬────────────────────────────────────────┘
                      ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -66,6 +67,7 @@ edge-tts 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + 
 │ 이미지+오디오 슬라이드쇼 + NanumSquare 자막 + BGM 믹싱      │
 │ 출력: 1080×1920, 30fps MP4                                  │
 │ 캐시: {poem_dir}/step6/shorts.mp4                           │
+│       --no-bgm 옵션 시 shorts_no_bgm.mp4 (TTS+자막만)       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,7 +81,7 @@ edge-tts 음성 + ComfyUI Flux.1-dev FP8 정지이미지 + NanumSquare 자막 + 
 | **백엔드** | FastAPI (`main_api.py`, 포트 8000) |
 | **OCR / NLP** | HCX-005 (OCR + 번역 + 테마/정서 분류 + 이미지 프롬프트) |
 | **BGM 프롬프트** | gpt-4o-mini (테마/정서 기반 Stable Audio 프롬프트) |
-| **음성 생성** | edge-tts (한국어, 무료 — `ko-KR-SunHiNeural`) |
+| **음성 생성** | ElevenLabs TTS (`eleven_multilingual_v2`, 여성/남성 voice ID 2종) |
 | **이미지 생성** | ComfyUI Flux.1-dev FP8 정지이미지 (GuoFeng5 LoRA) |
 | **BGM 생성** | Stable Audio (`stabilityai/stable-audio-open-1.0`) |
 | **자막** | PIL Image 기반 (NanumSquare EB, 흰색+검은 외곽선, 65% 위치) |
@@ -143,12 +145,14 @@ uv sync
 `notebook/.env` 파일 생성:
 ```env
 # API 키
-NCP_CLOVA_API_KEY=xxx        # HCX-005 OCR/번역
-OPENAI_API_KEY=xxx            # gpt-4o-mini BGM 프롬프트
-NOTION_API_KEY=xxx            # Notion DB 연동 (선택)
+NCP_CLOVA_API_KEY=xxx                            # HCX-005 OCR/번역/이미지 프롬프트
+OPENAI_API_KEY=xxx                               # gpt-4o-mini BGM 프롬프트
+NOTION_API_KEY=xxx                               # Notion DB 연동 (선택)
 
-# TTS
-EDGE_TTS_VOICE=ko-KR-SunHiNeural  # edge-tts 음성 (기본값)
+# TTS (ElevenLabs)
+ELEVENLABS_API_KEY=xxx                           # 필수
+ELEVENLABS_VOICE_ID1=XZpuKnMGlnvwMXKjjtQP        # 남성 voice ID
+ELEVENLABS_VOICE_ID2=GFjnEFNRrDZ9sqkhR3a9        # 여성 voice ID (기본)
 
 # ComfyUI 이미지 생성
 COMFYUI_HOST=http://127.0.0.1:8188
@@ -204,7 +208,7 @@ uv run python step0_ocr.py image.png
 # Step 1: NLP (이중 테마 + 정서 분류 포함)
 uv run python step1_nlp.py cache/{poem_id}
 
-# Step 2: edge-tts TTS
+# Step 2: ElevenLabs TTS
 uv run python step2_tts.py cache/{poem_id}
 
 # Step 3: 문장 스케줄링
@@ -218,6 +222,12 @@ uv run python step5_bgm.py cache/{poem_id}
 
 # Step 6: 최종 병합 (이미지+오디오+자막+BGM)
 uv run python step6_video.py cache/{poem_id}
+
+# Step 6: BGM 없이 TTS+자막만 출력 (shorts_no_bgm.mp4)
+uv run python step6_video.py cache/{poem_id} --no-bgm
+
+# Step 6: 캐시 무시 후 재생성
+uv run python step6_video.py cache/{poem_id} --no-cache
 ```
 
 ---
@@ -228,7 +238,8 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 
 | 에이전트 | 역할 | 자동 호출 조건 |
 |---------|------|-------------|
-| `historical-context-agent` | 고전시가 역사적 배경 조사 | 원문 텍스트 입력 시 |
+| `ocr-validation-agent` | OCR 결과 완전성·정확성 검증 | Step 0 OCR 완료 후 |
+| `nlp-validation-agent` | 씬 분할·테마·정서·프롬프트 검증 | Step 1 NLP 완료 후 |
 | `audio-visual-qa-agent` | 오디오-타임스탬프 타이밍 검증 | Step 2 TTS 완료 후 |
 | `art-director-agent` | 정지이미지 프롬프트 최적화 | Step 3 스케줄 생성 완료 후 |
 | `quality-assurance-agent` | 이미지-대본 정합성 검증 | Step 4 이미지 생성 완료 후 |
@@ -236,8 +247,6 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 | `video-verification-agent` | 영상 스펙/오디오/자막 검증 | Step 6 최종 영상 완성 후 |
 | `seo-metadata-agent` | YouTube 메타데이터 생성 | Step 6 최종 영상 완성 후 |
 | `pipeline-debug-agent` | 로그 분석 + 근본 원인 진단 | Step 실행 에러 발생 시 |
-| `ocr-validation-agent` | OCR 결과 완전성·정확성 검증 | Step 0 OCR 완료 후 |
-| `nlp-validation-agent` | 씬 분할·테마·정서·프롬프트 검증 | Step 1 NLP 완료 후 |
 | `prd-validator` | PRD 완전성·실현가능성 검증 | PRD 작성 완료 시 |
 | `prd-writer-shorts` | 파이프라인 PRD 작성 | 새 기능 설계 시 |
 
@@ -282,7 +291,7 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 - **CLAUDE.md** — Claude Code용 프로젝트 아키텍처 안내
 - **.claude/rules/** — 코드 스타일, 보안, 에러 처리, Git, 캐시 규칙
 - **.claude/skills/** — 자동 워크플로우 (상태 확인, 캐시 검증, ComfyUI 헬스체크 등)
-- **.claude/agents/** — 서브에이전트 11개 (아트 디렉터, QA, BGM 검증, 영상 검증, 디버그 등)
+- **.claude/agents/** — 서브에이전트 11개 (OCR/NLP 검증, 아트 디렉터, QA, BGM 검증, 영상 검증, 디버그 등)
 - **.claude/rules/bug_fixes_and_lessons.md** — v2 설계 교훈 및 버그 수정 이력
 
 ---
@@ -290,16 +299,17 @@ Claude Code가 아래 상황을 감지하면 해당 서브에이전트를 호출
 ## 다음 단계
 
 ### 현재 완료 (v2)
-- [x] Step 0: OCR (HCX-005)
+- [x] Step 0: OCR (HCX-005, 반복행 보존)
 - [x] Step 1: NLP + 씬 분할 + 이중 테마/정서 분류 (HCX-005)
-- [x] Step 2: edge-tts TTS + alignment 타임스탬프
+- [x] Step 2: ElevenLabs TTS + alignment 타임스탬프 (mutagen 길이 측정)
 - [x] Step 3: 문장 단위 스케줄링
 - [x] Step 4: ComfyUI Flux.1-dev FP8 정지이미지 생성
 - [x] Step 5: Stable Audio BGM 생성 (테마/정서 기반)
-- [x] Step 6: MoviePy 최종 병합 + NanumSquare 자막 + BGM 믹싱
+- [x] Step 6: MoviePy 최종 병합 + NanumSquare 자막 + BGM 믹싱 (`--no-bgm` 옵션 지원)
 
 ### Phase 2 (후속): 품질 고도화
 - [x] Flux.1-dev FP8 + GuoFeng5 LoRA 이미지 모델 전환 (Step 4) — 완료 (2026-04-05)
+- [x] Step 2 edge-tts → ElevenLabs TTS 전환 — 완료 (2026-04-25)
 - [ ] YouTube Shorts 자동 업로드 (YouTube Data API v3)
 - [ ] 수묵화 LoRA 추가 학습 (kohya_ss)
 - [ ] 씬 수 확장: 현행 → 15~20개
